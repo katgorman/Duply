@@ -1,20 +1,18 @@
 import os
 import re
+import pickle
 import pandas as pd
 import numpy as np
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from torch.optim import Adam
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, InputExample, losses
 from sklearn.metrics.pairwise import cosine_similarity
 import kagglehub
+import torch
+from torch.utils.data import DataLoader
 
 # -----------------------------
 # 1. Data Loading & Cleaning
 # -----------------------------
 def download_dataset(dataset_name: str, filename: str) -> pd.DataFrame:
-    """Download Kaggle dataset and load as pandas DataFrame."""
     dataset_path = kagglehub.dataset_download(dataset_name)
     file_path = os.path.join(dataset_path, filename)
     df = pd.read_csv(file_path, encoding='latin-1')
@@ -22,7 +20,6 @@ def download_dataset(dataset_name: str, filename: str) -> pd.DataFrame:
     return df
 
 def clean_text(text: str) -> str:
-    """Lowercase, remove punctuation, and extra whitespace."""
     if pd.isna(text):
         return ""
     text = text.lower()
@@ -30,113 +27,78 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
-def create_combined_text(df: pd.DataFrame, desired_fields: list) -> pd.Series:
-    """Combine multiple text fields into a single cleaned text column."""
+def create_combined_text(df: pd.DataFrame, desired_fields: list, cache_file="combined_text.pkl") -> pd.Series:
+    if os.path.exists(cache_file):
+        print("Loading cached combined text...")
+        return pd.read_pickle(cache_file)
     fields_to_use = [f for f in desired_fields if f in df.columns]
-    print("Using fields for combined_text:", fields_to_use)
-    combined = df[fields_to_use].fillna('').agg(' '.join, axis=1)
-    return combined.apply(clean_text)
+    combined = df[fields_to_use].fillna('').agg(' '.join, axis=1).apply(clean_text)
+    combined.to_pickle(cache_file)
+    print(f"Combined text cached to {cache_file}")
+    return combined
 
 # -----------------------------
-# 2. Pair Generation
+# 2. Pair Generation & Caching
 # -----------------------------
-def compute_embeddings(texts: list, model_name='paraphrase-MiniLM-L6-v2') -> np.ndarray:
-    """Compute normalized embeddings for a list of texts."""
+def compute_embeddings(texts: list, model_name='paraphrase-MiniLM-L6-v2', cache_file="pair_gen_embeddings.npy") -> np.ndarray:
+    if os.path.exists(cache_file):
+        print(f"Loading cached embeddings from {cache_file}")
+        return np.load(cache_file)
+    print("Computing embeddings for pair generation...")
     model = SentenceTransformer(model_name)
-    return model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+    embeddings = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+    np.save(cache_file, embeddings)
+    print(f"Embeddings cached to {cache_file}")
+    return embeddings
 
-def generate_pairs(embeddings: np.ndarray, pos_thresh=0.85, neg_thresh=0.3, categories=None):
-    """Generate positive and negative pairs based on cosine similarity."""
+def generate_pairs(embeddings: np.ndarray, categories=None, pos_thresh=0.85, neg_thresh=0.3, cache_file="pairs.pkl"):
+    if os.path.exists(cache_file):
+        print(f"Loading cached pairs from {cache_file}")
+        with open(cache_file, "rb") as f:
+            data = pickle.load(f)
+        return data["pos"], data["neg"]
+    
+    print("Generating positive and negative pairs...")
     cos_sim_matrix = cosine_similarity(embeddings)
     n = len(embeddings)
-    
-    pos_pairs = []
-    neg_pairs = []
+    pos_pairs, neg_pairs = [], []
 
     for i in range(n):
         similar_idx = np.where(cos_sim_matrix[i, i+1:] > pos_thresh)[0] + (i+1)
         for j in similar_idx:
             if categories is None or categories[i] == categories[j]:
                 pos_pairs.append((i, j))
-        
         dissimilar_idx = np.where(cos_sim_matrix[i, :] < neg_thresh)[0]
         for j in dissimilar_idx:
             if i != j:
                 neg_pairs.append((i, j))
 
+    with open(cache_file, "wb") as f:
+        pickle.dump({"pos": pos_pairs, "neg": neg_pairs}, f)
+    print(f"Pairs cached to {cache_file}")
     return pos_pairs, neg_pairs
 
 # -----------------------------
-# 3. PyTorch Dataset
+# 3. Convert to InputExamples
 # -----------------------------
-class SiameseDataset(Dataset):
-    def __init__(self, df, pos_pairs, neg_pairs):
-        self.df = df
-        self.texts = df['combined_text'].tolist()
-        self.pairs = [(i,j,1) for i,j in pos_pairs] + [(i,j,0) for i,j in neg_pairs]
-
-    def __len__(self):
-        return len(self.pairs)
-
-    def __getitem__(self, idx):
-        i, j, label = self.pairs[idx]
-        return self.texts[i], self.texts[j], torch.tensor(label, dtype=torch.float32)
+def create_input_examples(df, pos_pairs, neg_pairs):
+    examples = []
+    texts = df['combined_text'].tolist()
+    for i,j in pos_pairs:
+        examples.append(InputExample(texts=[texts[i], texts[j]], label=1.0))
+    for i,j in neg_pairs:
+        examples.append(InputExample(texts=[texts[i], texts[j]], label=0.0))
+    print(f"Created {len(examples)} InputExamples for training")
+    return examples
 
 # -----------------------------
-# 4. Siamese Model
-# -----------------------------
-class SiameseNetwork(nn.Module):
-    def __init__(self, model_name='paraphrase-MiniLM-L6-v2'):
-        super().__init__()
-        self.encoder = SentenceTransformer(model_name)
-
-    def forward(self, text_list):
-        # Trainable embeddings
-        embeddings = self.model(text_list)
-        return embeddings
-
-# -----------------------------
-# 5. Contrastive Loss
-# -----------------------------
-class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=1.0):
-        super().__init__()
-        self.margin = margin
-
-    def forward(self, output1, output2, label):
-        euclidean_distance = nn.functional.pairwise_distance(output1, output2)
-        loss = torch.mean(
-            label * euclidean_distance**2 +
-            (1 - label) * torch.clamp(self.margin - euclidean_distance, min=0.0)**2
-        )
-        return loss
-
-# -----------------------------
-# 6. Training Loop
-# -----------------------------
-def train_siamese(model, dataloader, optimizer, loss_fn, device):
-    model.train()
-    total_loss = 0
-    for text1, text2, label in dataloader:
-        optimizer.zero_grad()
-        text1 = list(text1)
-        text2 = list(text2)
-        emb1 = model(text1).to(device)
-        emb2 = model(text2).to(device)
-        label = label.to(device)
-        loss = loss_fn(emb1, emb2, label)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(dataloader)
-
-# -----------------------------
-# 7. Main Execution
+# 4. Main Training Workflow
 # -----------------------------
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model_name = 'paraphrase-MiniLM-L6-v2'
 
-    # Load dataset
+    # 1️⃣ Load dataset
     df = download_dataset(
         "devi5723/e-commerce-cosmetics-dataset",
         "E-commerce  cosmetic dataset.csv"
@@ -144,32 +106,39 @@ def main():
     desired_fields = ['brand', 'product_name', 'category', 'shades', 'ingredients', 'form', 'type', 'color']
     df['combined_text'] = create_combined_text(df, desired_fields)
 
-    # Compute embeddings & generate pairs
-    texts = df['combined_text'].tolist()
-    embeddings = compute_embeddings(texts)
+    # 2. Compute embeddings for pair generation (cached)
+    embeddings = compute_embeddings(df['combined_text'].tolist(), cache_file="pair_gen_embeddings.npy")
+
+    # 3. Generate pairs (cached)
     categories = df['category'].tolist() if 'category' in df.columns else None
-    pos_pairs, neg_pairs = generate_pairs(embeddings, pos_thresh=0.85, neg_thresh=0.3, categories=categories)
-    print(f"Generated {len(pos_pairs)} positive pairs and {len(neg_pairs)} negative pairs.")
+    pos_pairs, neg_pairs = generate_pairs(embeddings, categories, cache_file="pairs.pkl")
 
-    # Dataset & DataLoader
-    dataset = SiameseDataset(df, pos_pairs, neg_pairs)
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+    # 4. Create InputExamples
+    train_examples = create_input_examples(df, pos_pairs, neg_pairs)
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
 
-    # Model, Loss, Optimizer
-    model = SiameseNetwork().to(device)
-    loss_fn = ContrastiveLoss(margin=0.8)
-    optimizer = Adam(model.parameters(), lr=2e-5)
+    # 5. Define model and loss
+    model = SentenceTransformer(model_name, device=device)
+    train_loss = losses.ContrastiveLoss(model=model, margin=0.8)
 
-    # Training
-    epochs = 5
-    for epoch in range(epochs):
-        avg_loss = train_siamese(model, dataloader, optimizer, loss_fn, device)
-        print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.4f}")
+    # 6. Train using SentenceTransformer fit()
+    model.fit(
+        train_objectives=[(train_dataloader, train_loss)],
+        epochs=5,
+        warmup_steps=100,
+        show_progress_bar=True
+    )
 
-    # Save embeddings for nearest neighbor search
-    final_embeddings = model(texts).detach().cpu().numpy()
-    np.save("product_embeddings.npy", final_embeddings)
-    print("Training complete. Embeddings saved to 'product_embeddings.npy'.")
+    # 7. Save final embeddings (cached)
+    final_embeddings_file = "final_embeddings.npy"
+    if not os.path.exists(final_embeddings_file):
+        final_embeddings = model.encode(df['combined_text'].tolist(), convert_to_numpy=True, normalize_embeddings=True)
+        np.save(final_embeddings_file, final_embeddings)
+        print(f"Final embeddings cached to {final_embeddings_file}")
+    else:
+        print(f"Final embeddings already cached in {final_embeddings_file}")
+
+    print("Training complete!")
 
 if __name__ == "__main__":
     main()
