@@ -1,0 +1,16 @@
+# models
+cosmetics_dupe_model/
+checkpoints/
+
+# embeddings
+*.npy
+
+# FAISS
+*.faiss
+
+# dataset caches
+*.pkl
+
+# python
+__pycache__/
+*.pyc
