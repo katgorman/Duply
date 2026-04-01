@@ -1,8 +1,8 @@
-# Welcome to your Expo app 👋
+# Duply
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A beauty product dupe finder built with React Native and Expo.
 
-## Get started
+## Getting Started
 
 1. Install dependencies
 
@@ -16,16 +16,42 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-## Learn more
+## Architecture
 
-To learn more about developing your project with Expo, look at the following resources:
+- **Expo Router** with file-based routing (tabs + stack navigation)
+- **Makeup API** as temporary data source (swappable to Firebase)
+- **AsyncStorage** for local favorites persistence
+- **React Native Reanimated** for smooth animations
+- **expo-image** for optimized image loading
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Project Structure
 
-## Join the community
+```
+app/
+  (tabs)/           Tab screens (Home, Favorites, Profile)
+  categories.tsx    Categories stack screen
+  search.tsx        Search stack screen
+  searchResults.tsx Search results with dupe matching
+  productDetails.tsx Product comparison view
+services/
+  api.ts            Data service interface
+  makeupApi.ts      Makeup API implementation
+  firebaseApi.ts    Firebase stub (for teammate integration)
+hooks/
+  useProducts.ts    Data fetching hooks
+  useFavorites.ts   Favorites persistence hooks
+components/
+  ProductCard.tsx   Reusable product card
+  SkeletonLoader.tsx Loading skeletons
+  MatchBadge.tsx    Match percentage badge
+constants/
+  theme.ts          Design tokens (colors, typography, spacing)
+```
 
-Join our community of developers creating universal apps.
+## Switching to Firebase
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+When the Firebase backend is ready, update `services/api.ts`:
+
+```ts
+export { firebaseApiService as dataService } from './firebaseApi';
+```
