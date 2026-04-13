@@ -2,7 +2,7 @@
 
 Duply is an Expo + React Native beauty dupe app with a FastAPI backend.
 
-The app now uses:
+The app uses:
 - local/backend-powered product search
 - metadata-backed product pages
 - model-ranked dupe comparisons
