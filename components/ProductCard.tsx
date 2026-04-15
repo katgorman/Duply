@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 5,
     borderRadius: radius.full,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     marginBottom: spacing.sm,
   },

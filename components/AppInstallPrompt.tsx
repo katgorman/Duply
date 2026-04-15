@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.xl,
     padding: spacing.lg,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     ...shadows.lg,
   },
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
   secondaryButton: {
     backgroundColor: colors.surfaceElevated,
     borderRadius: radius.full,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,

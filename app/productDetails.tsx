@@ -469,7 +469,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
   },
   matchPillText: {
@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.md,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     ...shadows.sm,
   },
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
   },
   originalBadge: {
     backgroundColor: colors.lime,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.borderAccent,
   },
   originalBadgeText: {
@@ -573,7 +573,7 @@ const styles = StyleSheet.create({
   },
   dupeBadge: {
     backgroundColor: colors.accentLight,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.accent,
   },
   dupeBadgeText: {
@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: radius.sm,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
   },
   ratingRow: {
@@ -644,7 +644,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     ...shadows.sm,
     gap: spacing.md,
@@ -654,7 +654,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: radius.xl,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     ...shadows.sm,
     gap: spacing.md,

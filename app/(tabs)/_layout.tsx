@@ -85,7 +85,7 @@ const tabStyles = StyleSheet.create({
   },
   iconWrapActive: {
     backgroundColor: colors.tabActiveBg,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
   },
 });

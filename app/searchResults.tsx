@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     marginBottom: spacing.md,
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     ...shadows.sm,
   },
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
   },
   matchText: {

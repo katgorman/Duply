@@ -4,25 +4,25 @@ export const colors = {
   primary: '#8A0005',
   primaryLight: '#b6222a',
   accent: '#B4EBFF',
-  accentLight: '#e6f8ff',
+  accentLight: '#FFE9F6',
   accentDark: '#277a95',
   pink: '#FFBFE9',
-  lime: '#F6F5E1',
+  lime: '#FFE9F6',
   red: '#8A0005',
   purple: '#FFBFE9',
   rose: '#FFBFE9',
   softSky: '#B4EBFF',
   wine: '#8A0005',
-  clottedCream: '#F6F5E1',
+  clottedCream: '#FFE9F6',
   strawberryMilk: '#FFE9F6',
 
   gradientStart: '#FFE9F6',
   gradientMid: '#FFBFE9',
-  gradientEnd: '#F6F5E1',
+  gradientEnd: '#FFE9F6',
 
   background: '#FFE9F6',
-  surface: '#F6F5E1',
-  surfaceElevated: '#fffaf0',
+  surface: '#fff3fa',
+  surfaceElevated: '#FFE9F6',
 
   text: '#310002',
   textSecondary: '#6c1b21',
@@ -31,7 +31,7 @@ export const colors = {
   textOnAccent: '#310002',
 
   success: '#277a95',
-  successLight: '#d9f6ff',
+  successLight: '#FFE9F6',
   warning: '#8A0005',
   error: '#b00020',
 
@@ -44,18 +44,18 @@ export const colors = {
 
   tabInactive: '#8d5d80',
   tabActive: '#8A0005',
-  tabActiveBg: '#B4EBFF',
+  tabActiveBg: '#FFBFE9',
 
   skeleton: '#ffd8ef',
   skeletonHighlight: '#fff3fa',
 } as const;
 
 export const gradients = {
-  main: [colors.strawberryMilk, colors.rose, colors.clottedCream] as const,
-  hero: [colors.rose, colors.strawberryMilk, colors.softSky] as const,
+  main: [colors.strawberryMilk, colors.rose, '#fff3fa'] as const,
+  hero: [colors.rose, colors.strawberryMilk, '#fff3fa'] as const,
   header: [colors.rose, colors.strawberryMilk] as const,
-  card: [colors.clottedCream, '#fffaf0'] as const,
-  matchScore: [colors.softSky, colors.clottedCream, colors.rose] as const,
+  card: ['#fff3fa', colors.strawberryMilk] as const,
+  matchScore: [colors.rose, colors.strawberryMilk, '#fff3fa'] as const,
 } as const;
 
 export const spacing = {
@@ -78,20 +78,24 @@ export const radius = {
 
 export const typography = {
   hero: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' }),
     fontSize: 34,
     fontWeight: '800' as const,
     letterSpacing: 0,
   },
   h1: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' }),
     fontSize: 28,
     fontWeight: '700' as const,
     letterSpacing: 0,
   },
   h2: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' }),
     fontSize: 24,
     fontWeight: '700' as const,
   },
   h3: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' }),
     fontSize: 19,
     fontWeight: '600' as const,
   },
@@ -120,6 +124,7 @@ export const typography = {
     fontWeight: '700' as const,
   },
   label: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' }),
     fontSize: 11,
     fontWeight: '700' as const,
     letterSpacing: 0.5,
