@@ -2,17 +2,57 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Href, useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Bookmark, DollarSign, Info, RefreshCw, Settings, Star, User } from 'react-native-feather';
+import { Bookmark, DollarSign, Info, Lock, RefreshCw, Settings, Star, User } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, gradients, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useProfile } from '../../hooks/useProfile';
 
+const PROFILE_FEATURE_AVAILABLE = false;
 const SKIN_TYPES = ['Dry', 'Oily', 'Combination', 'Sensitive', 'Normal'];
 const FAVORITE_CATEGORIES = ['Foundation', 'Lipstick', 'Mascara', 'Blush', 'Eyeshadow', 'Bronzer'];
 const BUDGETS = ['Under $15', '$15-$25', '$25-$50', '$50+'];
 
 export default function ProfileScreen() {
+  if (!PROFILE_FEATURE_AVAILABLE) {
+    return <ProfileUnavailableScreen />;
+  }
+
+  return <LegacyProfileContent />;
+}
+
+function ProfileUnavailableScreen() {
+  const router = useRouter();
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.lockedScroll}>
+        <LinearGradient colors={[...gradients.header]} style={styles.lockedHeader}>
+          <View style={styles.lockedIconWrap}>
+            <Lock width={34} height={34} stroke={colors.primary} />
+          </View>
+          <Text style={styles.lockedTitle}>Profile Isn&apos;t Available Yet</Text>
+          <Text style={styles.lockedSubtitle}>
+            We&apos;re still building this feature. Your existing profile functionality is preserved, but it&apos;s hidden
+            from users for now.
+          </Text>
+        </LinearGradient>
+
+        <View style={styles.lockedCard}>
+          <Text style={styles.lockedCardTitle}>What you can use instead</Text>
+          <Text style={styles.lockedCardBody}>
+            Keep exploring dupes, saving favorites, and browsing products while we finish the profile experience.
+          </Text>
+          <Pressable onPress={() => router.push('/about' as Href)} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Learn More About Duply</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function LegacyProfileContent() {
   const router = useRouter();
   const { favorites } = useFavorites();
   const { profile, loaded, updateProfile, resetProfile } = useProfile();
@@ -106,7 +146,7 @@ export default function ProfileScreen() {
         </View>
 
         {!loaded ? (
-          <Text style={styles.footerNote}>Loading your profile…</Text>
+          <Text style={styles.footerNote}>Loading your profile...</Text>
         ) : (
           <Text style={styles.footerNote}>Profile preferences are stored locally on this device.</Text>
         )}
@@ -155,9 +195,19 @@ const styles = StyleSheet.create({
   scroll: {
     paddingBottom: spacing.xxxl,
   },
+  lockedScroll: {
+    paddingBottom: spacing.xxxl,
+    minHeight: '100%',
+  },
   header: {
     paddingTop: spacing.xxxl,
     paddingBottom: spacing.xxl + 12,
+    alignItems: 'center',
+  },
+  lockedHeader: {
+    paddingTop: spacing.xxxl,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xxxl,
     alignItems: 'center',
   },
   avatarCircle: {
@@ -170,6 +220,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     ...shadows.md,
   },
+  lockedIconWrap: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    ...shadows.md,
+  },
   name: {
     ...typography.h2,
     color: colors.textOnPrimary,
@@ -178,6 +238,51 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: '#ffe5ef',
     marginTop: spacing.xs,
+  },
+  lockedTitle: {
+    ...typography.h2,
+    color: colors.textOnPrimary,
+    textAlign: 'center',
+  },
+  lockedSubtitle: {
+    ...typography.caption,
+    color: '#ffe5ef',
+    textAlign: 'center',
+    marginTop: spacing.md,
+    maxWidth: 320,
+    lineHeight: 21,
+  },
+  lockedCard: {
+    marginHorizontal: spacing.lg,
+    marginTop: -28,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.75)',
+    ...shadows.md,
+  },
+  lockedCardTitle: {
+    ...typography.bodyBold,
+    color: colors.primary,
+  },
+  lockedCardBody: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 20,
+  },
+  primaryButton: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  primaryButtonText: {
+    ...typography.captionBold,
+    color: colors.textOnPrimary,
   },
   statsWrapper: {
     marginTop: -24,
