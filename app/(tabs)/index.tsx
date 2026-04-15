@@ -21,8 +21,8 @@ export default function HomeScreen() {
   const openProduct = (id: string, name: string) => {
     addRecentSearch(query);
     router.push({
-      pathname: '/productDetails',
-      params: { id, productName: name },
+      pathname: '/searchResults',
+      params: { productId: id, productName: name },
     });
     setQuery('');
   };

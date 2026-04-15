@@ -4,8 +4,13 @@ import time
 import json
 from typing import Iterable
 
-import firebase_admin
-from firebase_admin import credentials, firestore
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except Exception:
+    firebase_admin = None
+    credentials = None
+    firestore = None
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -17,32 +22,69 @@ def normalize_text(value):
 
 
 def _init_firestore():
+    if firebase_admin is None or credentials is None or firestore is None:
+        return None
+
     if not firebase_admin._apps:
-        cred_path = (
-            os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
-            or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        )
+        service_account_info = _service_account_from_env()
 
-        if not cred_path:
-            for filename in [
-                "firebase-service-account.json",
-                "firebase-credentials.json",
-            ]:
-                candidate = BASE_DIR / filename
-                if candidate.exists():
-                    cred_path = str(candidate)
-                    break
-
-        if cred_path:
-            firebase_admin.initialize_app(credentials.Certificate(cred_path))
+        if service_account_info:
+            try:
+                firebase_admin.initialize_app(credentials.Certificate(service_account_info))
+            except Exception:
+                return None
         else:
-            raise RuntimeError(
-                "Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT_PATH "
-                "or GOOGLE_APPLICATION_CREDENTIALS, or place "
-                "'firebase-service-account.json' in the backend folder."
+            cred_path = (
+                os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+                or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
             )
 
-    return firestore.client()
+            if not cred_path:
+                for filename in [
+                    "firebase-service-account.json",
+                    "firebase-credentials.json",
+                ]:
+                    candidate = BASE_DIR / filename
+                    if candidate.exists():
+                        cred_path = str(candidate)
+                        break
+
+            if cred_path:
+                try:
+                    firebase_admin.initialize_app(credentials.Certificate(cred_path))
+                except Exception:
+                    return None
+            else:
+                return None
+
+    try:
+        return firestore.client()
+    except Exception:
+        return None
+
+
+def _service_account_from_env():
+    raw_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if raw_json:
+        try:
+            return json.loads(raw_json)
+        except Exception:
+            return None
+
+    project_id = os.getenv("FIREBASE_PROJECT_ID")
+    client_email = os.getenv("FIREBASE_CLIENT_EMAIL")
+    private_key = os.getenv("FIREBASE_PRIVATE_KEY")
+
+    if not project_id or not client_email or not private_key:
+        return None
+
+    return {
+        "type": "service_account",
+        "project_id": project_id,
+        "client_email": client_email,
+        "private_key": private_key.replace("\\n", "\n"),
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
 
 
 db = _init_firestore()
@@ -166,7 +208,7 @@ def _normalize_firestore_product(doc):
 
 
 def _query_by_field(field, value, limit=10):
-    if not value:
+    if not value or db is None:
         return []
 
     try:
@@ -177,7 +219,7 @@ def _query_by_field(field, value, limit=10):
 
 
 def _prefix_query(field, value, limit=15):
-    if not value:
+    if not value or db is None:
         return []
 
     try:

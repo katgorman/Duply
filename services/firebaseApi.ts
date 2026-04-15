@@ -4,7 +4,7 @@ import type { Category, DataService, Dupe, Product } from './api';
  * Legacy stub kept only as a placeholder.
  *
  * The app now talks to the local FastAPI backend, which in turn
- * reads product records from Firestore and runs the recommendation model.
+ * used an older cloud-backed catalog path and recommendation model.
  */
 export const firebaseApiService: DataService = {
   async searchProducts(_query: string): Promise<Product[]> {

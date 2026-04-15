@@ -61,7 +61,7 @@ export default function SettingsScreen() {
           <InfoRow
             icon={Database}
             title="Product Source"
-            value="Firestore beauty_products collection"
+            value="Bundled product catalog with optional cloud sync"
           />
           <View style={styles.divider} />
           <InfoRow

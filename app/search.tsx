@@ -37,8 +37,8 @@ export default function SearchScreen() {
     addRecentSearch(query);
 
     router.push({
-      pathname: '/productDetails',
-      params: { id, productName: name },
+      pathname: '/searchResults',
+      params: { productId: id, productName: name },
     });
   };
 

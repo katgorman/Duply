@@ -23,7 +23,7 @@ export default function AboutScreen() {
           <Text style={styles.brandName}>Duply</Text>
           <Text style={styles.version}>Version 1.0.0</Text>
           <Text style={styles.description}>
-            Search products from your Firestore catalog, open rich product pages,
+            Search products from your product catalog, open rich product pages,
             and compare model-ranked dupes with explainable match scores.
           </Text>
         </View>

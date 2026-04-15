@@ -2,7 +2,21 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import type { Dupe, Product } from './api';
 
+function sanitizeBaseUrl(value: string | undefined | null): string {
+  const trimmed = (value || '').trim();
+  return trimmed.replace(/\/+$/, '');
+}
+
 function getBackendBaseUrl(): string {
+  const publicEnvUrl = sanitizeBaseUrl(
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    (Constants.expoConfig as any)?.extra?.apiBaseUrl
+  );
+
+  if (publicEnvUrl) {
+    return publicEnvUrl;
+  }
+
   const hostUri =
     (Constants.expoConfig as any)?.hostUri ||
     (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||

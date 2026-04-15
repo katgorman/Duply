@@ -52,25 +52,12 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-## Firebase Credentials
+## Optional Cloud Credentials
 
-Do not commit Firebase service account JSON files.
+You do not need Firebase credentials to run the app locally.
 
-Create a Firebase Admin SDK service account key and either:
-
-1. Place it at:
-
-```text
-backend/firebase-service-account.json
-```
-
-2. Or point to it with an environment variable:
-
-```powershell
-$env:FIREBASE_SERVICE_ACCOUNT_PATH="C:\path\to\firebase-service-account.json"
-```
-
-There is an example file at:
+The app can run fully from the bundled metadata/model files in `backend/`.
+If you later want to connect an external cloud product source, you can use:
 
 ```text
 backend/.env.example
@@ -108,11 +95,81 @@ npm run android
 npm run ios
 ```
 
+## Short-Term Production Setup
+
+If you want people to scan a QR code and use the app without your laptop running, you need two separate things:
+
+1. A hosted backend that is running 24/7.
+2. An Expo internal distribution build that points at that hosted backend.
+
+### Frontend API Configuration
+
+The app now supports an environment-based API URL.
+
+For local development, you can keep using the automatic localhost detection.
+
+For hosted builds, set:
+
+```text
+EXPO_PUBLIC_API_BASE_URL=https://your-backend-host.example.com
+```
+
+You can place that in a local `.env` file for development, or in Expo EAS environment variables for cloud builds.
+
+### Hosted Backend Secrets
+
+Do not ship `backend/firebase-service-account.json` inside the mobile app.
+
+The backend now supports three server-side credential methods:
+
+1. `GOOGLE_APPLICATION_CREDENTIALS` pointing to a JSON file path on the server
+2. `FIREBASE_SERVICE_ACCOUNT_JSON` containing the whole service account JSON as one environment variable
+3. Split environment variables:
+   `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+
+Use `backend/.env.example` as the template for hosted configuration.
+
+### EAS Build Profiles
+
+This repo now includes `eas.json` with these profiles:
+
+- `development`: development client build for local debugging
+- `preview`: internal distribution build for sharing via Expo build URL / QR code
+- `production`: store-style build profile for later
+
+For the short-term sharing flow, use the `preview` profile.
+
+### Recommended Short-Term Hosting Flow
+
+1. Deploy the FastAPI backend to a host that stays online all the time.
+2. Add the Firebase admin credentials only to that backend host.
+3. Set `EXPO_PUBLIC_API_BASE_URL` in your Expo `preview` environment.
+4. Build the app with EAS internal distribution.
+5. Share the generated install link / QR code with testers.
+
+### Example Backend Start Command
+
+Once your Python dependencies are installed on the server, a typical production start command is:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+If your host runs commands from the repo root instead of the `backend/` folder, set the working directory to `backend` first.
+
+### What You Must Keep Private
+
+Never expose any of these to end users or commit them publicly:
+
+- Firebase Admin service account JSON
+- `FIREBASE_PRIVATE_KEY`
+- any server-only secret environment variables
+
+`EXPO_PUBLIC_API_BASE_URL` is safe to expose because it is just the public URL of your backend.
+
 ## Project Notes
 
 - Product suggestions and category browsing are backed by the local cosmetics metadata index for speed.
 - Product details and dupe logic are resolved through the backend.
 - The backend expects `backend/cosmetics_metadata.json`, `backend/cosmetics_index.faiss`, and `backend/cosmetics_dupe_model/` to be present.
-- Firebase credentials are local-only and intentionally ignored by Git.
-
-
+- Cloud credentials are optional and intentionally ignored by Git.

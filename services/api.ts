@@ -51,6 +51,6 @@ export interface DataService {
   getFeaturedDupes(): Promise<Dupe[]>;
 }
 
-// The app uses the local backend service, which handles Firestore reads
+// The app uses the local backend service, which handles product catalog lookups
 // and model-powered dupe lookup behind a single data service interface.
 export { makeupApiService as dataService } from './makeupApi';
