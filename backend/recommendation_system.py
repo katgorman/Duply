@@ -1,56 +1,37 @@
-from pathlib import Path
-import faiss
 import json
-from sentence_transformers import SentenceTransformer
+import os
+from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
+MODEL_DIR = BASE_DIR / "cosmetics_dupe_model"
+INDEX_PATH = BASE_DIR / "cosmetics_index.faiss"
 
-model = SentenceTransformer(str(BASE_DIR / "cosmetics_dupe_model"))
-index = faiss.read_index(str(BASE_DIR / "cosmetics_index.faiss"))
+MODEL_MODE = os.getenv("DUPLY_MODEL_MODE", "auto").strip().lower()
 
-with open(BASE_DIR / "cosmetics_metadata.json", "r", encoding="utf-8") as f:
-    products = json.load(f)
+_products = None
+_model = None
+_index = None
+_model_status = "uninitialized"
+_model_error = ""
+
+
+def _load_products():
+    global _products
+
+    if _products is not None:
+      return _products
+
+    with open(METADATA_PATH, "r", encoding="utf-8") as f:
+        _products = json.load(f)
+
+    return _products
 
 
 def normalize_text(value):
     if value is None:
         return ""
     return str(value).strip().lower()
-
-
-def lookup_product(query, preferred_type=None):
-    query = normalize_text(query)
-    preferred_type = canonical_type(preferred_type)
-
-    best_match = None
-    best_score = 0
-
-    for product in products:
-        text = normalize_text(f"{product.get('brand', '')} {product.get('product_name', '')}")
-        candidate_type = infer_candidate_type(product)
-
-        if preferred_type and candidate_type and candidate_type != preferred_type:
-            continue
-
-        score = sum(1 for word in query.split() if word in text)
-
-        if score > best_score:
-            best_score = score
-            best_match = product
-
-    if best_score >= 2:
-        return best_match
-
-    return None
-
-
-def build_query_text(query, preferred_type=None):
-    product = lookup_product(query, preferred_type=preferred_type)
-
-    if product and product.get("combined_text"):
-        return product["combined_text"], product
-
-    return query, None
 
 
 def canonical_type(value):
@@ -149,8 +130,143 @@ def _same_product(a, b):
     )
 
 
+def lookup_product(query, preferred_type=None):
+    query = normalize_text(query)
+    preferred_type = canonical_type(preferred_type)
+
+    best_match = None
+    best_score = 0
+
+    for product in _load_products():
+        text = normalize_text(f"{product.get('brand', '')} {product.get('product_name', '')}")
+        candidate_type = infer_candidate_type(product)
+
+        if preferred_type and candidate_type and candidate_type != preferred_type:
+            continue
+
+        score = sum(1 for word in query.split() if word in text)
+
+        if score > best_score:
+            best_score = score
+            best_match = product
+
+    if best_score >= 2:
+        return best_match
+
+    return None
+
+
+def build_query_text(query, preferred_type=None):
+    product = lookup_product(query, preferred_type=preferred_type)
+
+    if product and product.get("combined_text"):
+        return product["combined_text"], product
+
+    return query, None
+
+
+def _keyword_similarity(query_text, candidate):
+    haystack = normalize_text(
+        " ".join([
+            candidate.get("brand", ""),
+            candidate.get("product_name", ""),
+            candidate.get("category", ""),
+            candidate.get("subcategory", ""),
+            candidate.get("combined_text", ""),
+        ])
+    )
+    tokens = [token for token in normalize_text(query_text).split() if token]
+
+    if not haystack or not tokens:
+        return 0.0
+
+    score = 0.0
+    for token in tokens:
+        if token in haystack:
+            score += 1.0
+
+    return score / len(tokens)
+
+
+def _fallback_find_dupes(query, k=5, preferred_type=None):
+    target_type = canonical_type(preferred_type)
+    if target_type not in VALID_PRODUCT_TYPES:
+        target_type = ""
+
+    query_text, original_product = build_query_text(query, preferred_type=target_type or None)
+
+    if not target_type:
+        if original_product:
+            target_type = infer_candidate_type(original_product)
+        else:
+            target_type = infer_query_type(query)
+
+    scored = []
+    for product in _load_products():
+        if _same_product(product, original_product):
+            continue
+
+        candidate_type = infer_candidate_type(product)
+        if target_type and candidate_type != target_type:
+            continue
+
+        similarity = _keyword_similarity(query_text, product)
+        if similarity <= 0:
+            continue
+
+        scored.append((similarity, product))
+
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            normalize_text(item[1].get("brand")),
+            normalize_text(item[1].get("product_name")),
+        )
+    )
+
+    results = []
+    for score, candidate in scored[:k]:
+        results.append({
+            "record": candidate,
+            "score": float(round(score, 4)),
+        })
+
+    return results
+
+
+def _ensure_local_model():
+    global _model, _index, _model_status, _model_error
+
+    if _model_status == "ready":
+        return True
+
+    if _model_status == "failed":
+        return False
+
+    if MODEL_MODE == "disabled":
+        _model_status = "failed"
+        _model_error = "Local model explicitly disabled"
+        return False
+
+    try:
+        import faiss
+        from sentence_transformers import SentenceTransformer
+
+        _model = SentenceTransformer(str(MODEL_DIR))
+        _index = faiss.read_index(str(INDEX_PATH))
+        _model_status = "ready"
+        return True
+    except Exception as exc:
+        _model_status = "failed"
+        _model_error = str(exc)
+        _model = None
+        _index = None
+        return False
+
+
 def _collect_results(ids, scores, original_product, target_type=None, k=5):
     results = []
+    products = _load_products()
 
     for idx, score in zip(ids[0], scores[0]):
         if idx < 0 or idx >= len(products):
@@ -162,7 +278,6 @@ def _collect_results(ids, scores, original_product, target_type=None, k=5):
             continue
 
         candidate_type = infer_candidate_type(candidate)
-
         if target_type and candidate_type != target_type:
             continue
 
@@ -177,6 +292,24 @@ def _collect_results(ids, scores, original_product, target_type=None, k=5):
     return results
 
 
+def get_recommendation_mode():
+    if _model_status == "ready":
+        return "local-model"
+    if MODEL_MODE == "disabled":
+        return "metadata-fallback"
+    if _model_status == "failed":
+        return "metadata-fallback"
+    return "auto"
+
+
+def get_recommendation_status():
+    return {
+        "mode": get_recommendation_mode(),
+        "modelStatus": _model_status,
+        "modelError": _model_error,
+    }
+
+
 def find_dupes(query, k=5, search_pool=50, preferred_type=None):
     target_type = canonical_type(preferred_type)
     if target_type not in VALID_PRODUCT_TYPES:
@@ -184,37 +317,26 @@ def find_dupes(query, k=5, search_pool=50, preferred_type=None):
 
     query_text, original_product = build_query_text(query, preferred_type=target_type or None)
 
-    embedding = model.encode(
-        [query_text],
-        normalize_embeddings=True
-    ).astype("float32")
-
-    scores, ids = index.search(embedding, search_pool)
-
     if not target_type:
         if original_product:
             target_type = infer_candidate_type(original_product)
         else:
             target_type = infer_query_type(query)
 
-    # Keep dupes within the same inferred product type when we can infer one.
-    # If we cannot infer any type from either the matched product or the raw query,
-    # fall back to nearest neighbors so broad searches still return something.
-    results = _collect_results(
+    if not _ensure_local_model():
+        return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
+
+    embedding = _model.encode(
+        [query_text],
+        normalize_embeddings=True
+    ).astype("float32")
+
+    scores, ids = _index.search(embedding, search_pool)
+
+    return _collect_results(
         ids=ids,
         scores=scores,
         original_product=original_product,
         target_type=target_type or None,
         k=k,
     )
-
-    return results
-
-
-if __name__ == "__main__":
-    query = input("Search product: ")
-    dupes = find_dupes(query)
-
-    print("\nTop dupes:\n")
-    for d in dupes:
-        print(f"{d['brand']} - {d['product_name']} ({d['score']:.3f})")

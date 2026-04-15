@@ -1,5 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -35,7 +36,7 @@ export default function HomeScreen() {
         <Pressable onPress={() => router.push('/categories')} style={styles.menuBtn}>
           <Menu width={24} height={24} stroke={colors.primary} />
         </Pressable>
-        <Text style={styles.brand}>düply</Text>
+        <Image source={require('../../assets/images/duply-logo.png')} style={styles.brandLogo} contentFit="contain" />
         <View style={{ width: 40 }} />
       </View>
 
@@ -218,9 +219,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.surfaceElevated,
   },
-  brand: {
-    ...typography.hero,
-    color: colors.primary,
+  brandLogo: {
+    width: 60,
+    height: 60,
   },
   scrollContent: {
     paddingBottom: spacing.xxxl,

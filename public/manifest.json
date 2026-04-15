@@ -8,13 +8,13 @@
   "theme_color": "#820933",
   "icons": [
     {
-      "src": "/assets/images/icon.png",
+      "src": "/assets/images/duply-logo.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "/assets/images/favicon.png",
-      "sizes": "48x48",
+      "src": "/assets/images/duply-logo.png",
+      "sizes": "192x192",
       "type": "image/png"
     }
   ]

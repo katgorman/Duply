@@ -7,7 +7,7 @@ from firestore_products import (
     normalize_product_type,
     search_firestore_products,
 )
-from recommendation_system import find_dupes, lookup_product
+from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 
 app = FastAPI()
 
@@ -199,7 +199,7 @@ def _product_from_record(record, fallback=None):
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, **get_recommendation_status()}
 
 
 @app.get("/products/search")

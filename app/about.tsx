@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -20,6 +21,7 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.brandSection}>
+          <Image source={require('../assets/images/duply-logo.png')} style={styles.brandLogo} contentFit="contain" />
           <Text style={styles.brandName}>Duply</Text>
           <Text style={styles.version}>Version 1.0.0</Text>
           <Text style={styles.description}>
@@ -110,6 +112,11 @@ const styles = StyleSheet.create({
   brandSection: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
+  },
+  brandLogo: {
+    width: 120,
+    height: 120,
+    marginBottom: spacing.md,
   },
   brandName: {
     fontSize: 40,
