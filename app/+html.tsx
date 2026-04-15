@@ -11,7 +11,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="theme-color" content="#8A0005" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Duply" />
+        <meta name="apple-mobile-web-app-title" content="düply" />
         <meta
           name="description"
           content="Find beauty dupes, compare match percentages, and save your favorite alternatives."

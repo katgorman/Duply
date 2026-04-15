@@ -34,7 +34,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
         <Image source={require('../../assets/images/duply-logo.png')} style={styles.brandLogo} contentFit="contain" />
-        <Text style={styles.brand}>duply</Text>
+        <Text style={styles.brand}>düply</Text>
         <Pressable onPress={() => router.push('/categories')} style={styles.menuBtn}>
           <Menu width={24} height={24} stroke={colors.primary} />
         </Pressable>
@@ -129,7 +129,7 @@ export default function HomeScreen() {
           <View style={styles.disclaimerCard}>
             <Text style={styles.disclaimerTitle}>Early Demo Disclaimer</Text>
             <Text style={styles.disclaimerBody}>
-              Duply is still in its early demo stage, so it does not yet include every makeup product on the market. We
+              düply is still in its early demo stage, so it does not yet include every makeup product on the market. We
               are also actively working on adding stronger product image support.
             </Text>
           </View>
@@ -138,7 +138,7 @@ export default function HomeScreen() {
         {Platform.OS === 'web' ? (
           <View style={styles.section}>
             <View style={styles.installCard}>
-              <Text style={styles.installTitle}>On iPhone, add Duply to your home screen</Text>
+              <Text style={styles.installTitle}>On iPhone, add düply to your home screen</Text>
               <Text style={styles.installBody}>
                 Open this page in Safari, tap Share, then choose Add to Home Screen. Android users can use the browser
                 version too, or install the full app if you share an Android build link.

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Duply-React",
+    "name": "düply",
     "slug": "Duply-React",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -31,8 +31,8 @@
     "web": {
       "output": "static",
       "favicon": "./assets/images/duply-logo.png",
-      "name": "Duply",
-      "shortName": "Duply",
+      "name": "düply",
+      "shortName": "düply",
       "themeColor": "#8A0005",
       "backgroundColor": "#FFE9F6"
     },

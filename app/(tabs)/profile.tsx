@@ -44,7 +44,7 @@ function ProfileUnavailableScreen() {
             Keep exploring dupes, saving favorites, and browsing products while we finish the profile experience.
           </Text>
           <Pressable onPress={() => router.push('/about' as Href)} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Learn More About Duply</Text>
+            <Text style={styles.primaryButtonText}>Learn More About düply</Text>
           </Pressable>
         </View>
       </ScrollView>

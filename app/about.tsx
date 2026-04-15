@@ -22,7 +22,7 @@ export default function AboutScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.brandSection}>
           <Image source={require('../assets/images/duply-logo.png')} style={styles.brandLogo} contentFit="contain" />
-          <Text style={styles.brandName}>Duply</Text>
+          <Text style={styles.brandName}>düply</Text>
           <Text style={styles.version}>Version 1.0.0</Text>
           <Text style={styles.description}>
             Search products from your product catalog, open rich product pages,

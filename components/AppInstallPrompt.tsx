@@ -94,11 +94,11 @@ export default function AppInstallPrompt() {
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.card}>
-        <Text style={styles.title}>Keep Duply on your home screen</Text>
+        <Text style={styles.title}>Keep düply on your home screen</Text>
         <Text style={styles.body}>
           {showIosInstructions
             ? 'In Safari, tap Share, then choose Add to Home Screen for fast access any time.'
-            : 'Install Duply for quicker launches and a more app-like experience.'}
+            : 'Install düply for quicker launches and a more app-like experience.'}
         </Text>
         <View style={styles.actions}>
           {!showIosInstructions && deferredPrompt ? (
