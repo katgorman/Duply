@@ -66,6 +66,12 @@ export default function ProductDetailsScreen() {
         ]);
         setOriginal(orig);
         setDupeProduct(dupe);
+        if (orig) {
+          addRecentView(orig);
+        }
+        if (dupe) {
+          addRecentView(dupe);
+        }
         setSimilarity(Number(similarityParam) || 0);
         setSavingsAmount(Number(savingsParam) || 0);
         setMatchReason(matchReasonParam || '');
