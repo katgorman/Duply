@@ -4,8 +4,8 @@
   "description": "Find beauty dupes, compare match percentages, and save your favorite alternatives.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FF99DC",
-  "theme_color": "#EB4213",
+  "background_color": "#FFE9F6",
+  "theme_color": "#8A0005",
   "icons": [
     {
       "src": "/assets/images/duply-logo.png",

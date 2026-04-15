@@ -21,7 +21,7 @@
     "android": {
       "package": "com.katgorman.duply",
       "adaptiveIcon": {
-        "backgroundColor": "#FF99DC",
+        "backgroundColor": "#FFE9F6",
         "foregroundImage": "./assets/images/duply-logo.png",
         "monochromeImage": "./assets/images/duply-logo.png"
       },
@@ -33,8 +33,8 @@
       "favicon": "./assets/images/duply-logo.png",
       "name": "Duply",
       "shortName": "Duply",
-      "themeColor": "#EB4213",
-      "backgroundColor": "#FF99DC"
+      "themeColor": "#8A0005",
+      "backgroundColor": "#FFE9F6"
     },
     "plugins": [
       "expo-router",
