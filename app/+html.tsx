@@ -16,6 +16,8 @@ export default function Root({ children }: PropsWithChildren) {
           name="description"
           content="Find beauty dupes, compare match percentages, and save your favorite alternatives."
         />
+        <link rel="icon" href="/assets/images/duply-logo.png" />
+        <link rel="shortcut icon" href="/assets/images/duply-logo.png" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/assets/images/duply-logo.png" />
         <ScrollViewStyleReset />
