@@ -73,11 +73,12 @@ const tabStyles = StyleSheet.create({
   },
   item: {
     paddingVertical: spacing.xs,
+    paddingBottom: spacing.sm,
   },
   label: {
     ...typography.small,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
   iconWrap: {
     padding: spacing.sm,

@@ -292,6 +292,8 @@ def _find_source_page_image(product_url):
         r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
         r'"image"\s*:\s*"([^"]+)"',
+        r'"hiRes"\s*:\s*"([^"]+)"',
+        r'"large"\s*:\s*"([^"]+)"',
     ]
 
     for pattern in patterns:
