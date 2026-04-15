@@ -75,7 +75,7 @@ export default function SearchResultsScreen() {
           <Image source={{ uri: item.dupe.image }} style={styles.imageBox} contentFit="cover" />
         ) : (
           <View style={[styles.imageBox, styles.imagePlaceholder]}>
-            <Text style={{ fontSize: 28 }}>💄</Text>
+            <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
           </View>
         )}
         <View style={styles.info}>
@@ -239,6 +239,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.accentLight,
+  },
+  imagePlaceholderText: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xs,
   },
   info: {
     flex: 1,

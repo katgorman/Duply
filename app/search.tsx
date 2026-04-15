@@ -94,7 +94,7 @@ export default function SearchScreen() {
                   <Image source={{ uri: item.image }} style={styles.resultImage} contentFit="cover" />
                 ) : (
                   <View style={[styles.resultImage, styles.resultImagePlaceholder]}>
-                    <Text style={styles.placeholderEmoji}>ðŸ’„</Text>
+                    <Text style={styles.placeholderText}>Image unavailable</Text>
                   </View>
                 )}
                 <View style={styles.resultInfo}>
@@ -316,8 +316,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.accentLight,
   },
-  placeholderEmoji: {
-    fontSize: 20,
+  placeholderText: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xs,
   },
   resultInfo: {
     flex: 1,

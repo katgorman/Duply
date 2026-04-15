@@ -189,8 +189,9 @@ def _product_from_record(record, fallback=None, enrich_image=False):
     )
     raw = record.get("raw", {})
     image = record.get("image") or fallback.get("image", "")
+    product_url = record.get("title-href") or raw.get("productUrl") or raw.get("title-href") or ""
     if enrich_image and not image:
-        image = find_product_image(brand, name)
+        image = find_product_image(brand, name, product_url)
 
     return {
         "id": explicit_id or _slugify(f"{brand}-{name}"),
@@ -210,7 +211,7 @@ def _product_from_record(record, fallback=None, enrich_image=False):
         "productSize": raw.get("Product_Size") or raw.get("size") or record.get("productSize") or "",
         "skinType": raw.get("Skin_Type") or record.get("skinType") or "",
         "source": record.get("source") or raw.get("source") or "catalog",
-        "productUrl": record.get("title-href") or raw.get("productUrl") or raw.get("title-href") or "",
+        "productUrl": product_url,
         "releaseYear": record.get("releaseYear") or raw.get("releaseYear") or None,
     }
 
@@ -243,7 +244,8 @@ def search_products(q: str):
         if key in seen:
             continue
         seen.add(key)
-        combined.append(_product_from_record(product, fallback={"id": product.get("firestore_id", "")}))
+        enrich_image = len(combined) < 12
+        combined.append(_product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=enrich_image))
 
     return combined[:28]
 
@@ -251,7 +253,14 @@ def search_products(q: str):
 @app.get("/products/category/{category_or_type}")
 def get_products_by_category(category_or_type: str):
     results = list_products_by_category(category_or_type, limit=200)
-    return [_product_from_record(product, fallback={"id": product.get("firestore_id", "")}) for product in results]
+    return [
+        _product_from_record(
+            product,
+            fallback={"id": product.get("firestore_id", "")},
+            enrich_image=index < 12,
+        )
+        for index, product in enumerate(results)
+    ]
 
 
 @app.get("/products/{product_id}")
@@ -295,40 +304,45 @@ async def get_dupes(request: Request):
             "subcategory": product_type,
             "type": product_type,
         })
-        original_raw = (original_firestore or {}).get("raw", {})
-        original_price = _first_present(
-            (original_firestore or {}).get("price"),
-            original_raw.get("Price_USD"),
-            original_raw.get("price"),
-            original_raw.get("salePrice"),
-            original_raw.get("current_price"),
-            price,
-        )
-        original = {
-            "id": (original_firestore or {}).get("firestore_id") or f"{brand}-{name}".lower().replace(" ", "-"),
-            "name": name,
-            "brand": brand,
-            "price": _normalize_price(original_price),
-            "image": image or find_product_image(brand, name),
-            "rating": 0,
-            "category": category or (original_firestore or {}).get("category", "") or (matched_product or {}).get("category", "") or "",
-            "productType": normalize_product_type(
-                product_type
-                or (original_firestore or {}).get("subcategory", "")
-                or (matched_product or {}).get("subcategory", "")
-                or (matched_product or {}).get("type", "")
-                or ""
-            ),
-            "countryOfOrigin": ((original_firestore or {}).get("raw", {})).get("Country_of_Origin", "") or ((original_firestore or {}).get("raw", {})).get("country", ""),
-            "crueltyFree": ((original_firestore or {}).get("raw", {})).get("Cruelty_Free", ""),
-            "genderTarget": ((original_firestore or {}).get("raw", {})).get("Gender_Target", ""),
-            "mainIngredient": ((original_firestore or {}).get("raw", {})).get("Main_Ingredient", "") or ((original_firestore or {}).get("raw", {})).get("ingredients", ""),
-            "numberOfReviews": int(_normalize_number(((original_firestore or {}).get("raw", {})).get("Number_of_Reviews"), _normalize_number(((original_firestore or {}).get("raw", {})).get("noofratings"), 0))),
-            "packagingType": ((original_firestore or {}).get("raw", {})).get("Packaging_Type", "") or ((original_firestore or {}).get("raw", {})).get("form", ""),
-            "productSize": ((original_firestore or {}).get("raw", {})).get("Product_Size", "") or ((original_firestore or {}).get("raw", {})).get("size", ""),
-            "skinType": ((original_firestore or {}).get("raw", {})).get("Skin_Type", ""),
-            "raw": (original_firestore or {}).get("raw", {}),
-        }
+        if original_firestore:
+            original_raw = original_firestore.get("raw", {})
+            original_price = _first_present(
+                original_firestore.get("price"),
+                original_raw.get("Price_USD"),
+                original_raw.get("price"),
+                original_raw.get("salePrice"),
+                original_raw.get("current_price"),
+                price,
+            )
+            original_record = {**original_firestore, "price": original_price}
+            original = _product_from_record(
+                original_record,
+                fallback={
+                    "id": original_firestore.get("firestore_id", ""),
+                    "image": image,
+                },
+                enrich_image=True,
+            )
+        else:
+            original = {
+                "id": f"{brand}-{name}".lower().replace(" ", "-"),
+                "name": name,
+                "brand": brand,
+                "price": _normalize_price(price),
+                "image": image,
+                "rating": 0,
+                "category": category or (matched_product or {}).get("category", "") or "",
+                "productType": normalize_product_type(product_type or (matched_product or {}).get("subcategory", "") or (matched_product or {}).get("type", "") or ""),
+                "countryOfOrigin": "",
+                "crueltyFree": "",
+                "genderTarget": "",
+                "mainIngredient": "",
+                "numberOfReviews": 0,
+                "packagingType": "",
+                "productSize": "",
+                "skinType": "",
+                "raw": {},
+            }
 
         output = []
 

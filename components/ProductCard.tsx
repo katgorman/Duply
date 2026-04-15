@@ -37,7 +37,7 @@ export default function ProductCard({
         />
       ) : (
         <View style={[styles.image, styles.imagePlaceholder]}>
-          <Text style={styles.placeholderText}>No image</Text>
+          <Text style={styles.placeholderText}>Image unavailable</Text>
         </View>
       )}
       <View style={styles.info}>

@@ -167,7 +167,7 @@ export default function ProductDetailsScreen() {
   const productFacts = [
     { label: 'Category', value: original.category },
     { label: 'Product Type', value: original.productType },
-    { label: 'Main Ingredient', value: original.mainIngredient },
+    { label: 'Ingredients', value: original.mainIngredient },
     { label: 'Skin Type', value: original.skinType },
     { label: 'Packaging', value: original.packagingType },
     { label: 'Size', value: original.productSize },
@@ -177,6 +177,7 @@ export default function ProductDetailsScreen() {
     { label: 'Reviews', value: original.numberOfReviews ? String(original.numberOfReviews) : '' },
   ].filter(item => item.value);
   const displayRating = isComparisonView ? (dupeProduct?.rating || original.rating) : original.rating;
+  const hasRating = displayRating > 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -215,7 +216,7 @@ export default function ProductDetailsScreen() {
               <Image source={{ uri: original.image }} style={styles.heroImage} contentFit="cover" />
             ) : (
               <View style={[styles.heroImage, styles.imagePlaceholder]}>
-                <Text style={styles.imagePlaceholderText}>No image</Text>
+                <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
               </View>
             )}
             <Text style={styles.heroBrand}>{original.brand}</Text>
@@ -251,7 +252,7 @@ export default function ProductDetailsScreen() {
                   <Image source={{ uri: original.image }} style={styles.productImage} contentFit="cover" />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
-                    <Text style={styles.imagePlaceholderText}>No image</Text>
+                    <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
                   </View>
                 )}
                 <View style={[styles.labelBadge, styles.originalBadge]}>
@@ -277,7 +278,7 @@ export default function ProductDetailsScreen() {
                     <Image source={{ uri: dupeProduct.image }} style={styles.productImage} contentFit="cover" />
                   ) : (
                     <View style={[styles.productImage, styles.imagePlaceholder]}>
-                      <Text style={styles.imagePlaceholderText}>No image</Text>
+                      <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
                     </View>
                   )}
                   <View style={[styles.labelBadge, styles.dupeBadge]}>
@@ -315,20 +316,22 @@ export default function ProductDetailsScreen() {
           </Animated.View>
         )}
 
-        <Animated.View entering={FadeInDown.delay(350).duration(400)}>
-          <Text style={styles.sectionTitle}>Rating</Text>
-          <View style={styles.ratingRow}>
-            {[1, 2, 3, 4, 5].map(star => (
-              <Ionicons
-                key={star}
-                name={star <= Math.round(displayRating) ? 'star' : 'star-outline'}
-                size={22}
-                color="#f59e0b"
-              />
-            ))}
-            <Text style={styles.ratingValue}>{displayRating.toFixed(1)}</Text>
-          </View>
-        </Animated.View>
+        {hasRating && (
+          <Animated.View entering={FadeInDown.delay(350).duration(400)}>
+            <Text style={styles.sectionTitle}>Rating</Text>
+            <View style={styles.ratingRow}>
+              {[1, 2, 3, 4, 5].map(star => (
+                <Ionicons
+                  key={star}
+                  name={star <= Math.round(displayRating) ? 'star' : 'star-outline'}
+                  size={22}
+                  color={colors.accentDark}
+                />
+              ))}
+              <Text style={styles.ratingValue}>{displayRating.toFixed(1)}</Text>
+            </View>
+          </Animated.View>
+        )}
 
         {productFacts.length > 0 && (
           <Animated.View entering={FadeInDown.delay(375).duration(400)}>

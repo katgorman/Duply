@@ -1,10 +1,11 @@
 import hashlib
+import html
 import json
 import os
 import re
 import time
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urljoin, urlencode
 from urllib.request import Request, urlopen
 
 from firestore_products import normalize_product_type, normalize_text
@@ -20,6 +21,7 @@ WEB_SEARCH_YEARS = [year.strip() for year in os.getenv("DUPLY_WEB_SEARCH_YEARS",
 WEB_SEARCH_REQUIRE_RELEASE_YEAR = os.getenv("DUPLY_WEB_SEARCH_REQUIRE_RELEASE_YEAR", "false").strip().lower() in {"1", "true", "yes"}
 WEB_IMAGE_LOOKUP_ENABLED = os.getenv("DUPLY_WEB_IMAGE_LOOKUP_ENABLED", os.getenv("DUPLY_WEB_SEARCH_ENABLED", "false")).strip().lower() in {"1", "true", "yes"}
 WEB_IMAGE_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_WEB_IMAGE_CACHE_TTL_SECONDS", "86400"))
+SOURCE_IMAGE_LOOKUP_ENABLED = os.getenv("DUPLY_SOURCE_IMAGE_LOOKUP_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
 
 _allowed_brands = None
 _search_cache = {}
@@ -252,9 +254,71 @@ def _candidate_image_url(item):
     )
 
 
-def find_product_image(brand, product_name):
+def _looks_like_http_image(value):
+    return isinstance(value, str) and value.startswith(("http://", "https://", "//"))
+
+
+def _source_image_cache_key(product_url):
+    return ("source", normalize_text(product_url))
+
+
+def _find_source_page_image(product_url):
+    product_url = str(product_url or "").strip()
+    if not SOURCE_IMAGE_LOOKUP_ENABLED or not product_url:
+        return ""
+
+    cached = _cache_get(_image_cache, _source_image_cache_key(product_url))
+    if cached is not None:
+        return cached
+
+    try:
+        request = Request(
+            product_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; Duply/1.0; +https://duply.app)",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        with urlopen(request, timeout=4) as response:
+            page_html = response.read(400000).decode("utf-8", errors="ignore")
+            final_url = response.geturl()
+    except Exception:
+        _cache_set(_image_cache, _source_image_cache_key(product_url), "")
+        return ""
+
+    patterns = [
+        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+        r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
+        r'"image"\s*:\s*"([^"]+)"',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, page_html, flags=re.IGNORECASE)
+        if not match:
+            continue
+        image_url = html.unescape(match.group(1).replace("\\/", "/").strip())
+        if image_url.startswith("//"):
+            image_url = f"https:{image_url}"
+        elif image_url.startswith("/"):
+            image_url = urljoin(final_url, image_url)
+        if _looks_like_http_image(image_url):
+            _cache_set(_image_cache, _source_image_cache_key(product_url), image_url)
+            return image_url
+
+    _cache_set(_image_cache, _source_image_cache_key(product_url), "")
+    return ""
+
+
+def find_product_image(brand, product_name, product_url=""):
     brand = str(brand or "").strip()
     product_name = str(product_name or "").strip()
+
+    source_image = _find_source_page_image(product_url)
+    if source_image:
+        return source_image
+
     if not WEB_IMAGE_LOOKUP_ENABLED or not SERPAPI_API_KEY or not brand or not product_name:
         return ""
 
