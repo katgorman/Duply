@@ -65,11 +65,16 @@ export function useSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
 
   const search = useCallback((query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    if (!trimmedQuery) {
       setResults([]);
       setLoading(false);
       setError(null);
@@ -79,15 +84,19 @@ export function useSearch() {
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await dataService.searchProducts(query);
+        const data = await dataService.searchProducts(trimmedQuery);
+        if (requestId !== requestIdRef.current) return;
         setResults(data);
         setError(null);
       } catch (err: any) {
+        if (requestId !== requestIdRef.current) return;
         setError(err.message);
       } finally {
-        setLoading(false);
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
-    }, 150);
+    }, 300);
   }, []);
 
   return { results, loading, error, search };

@@ -2,7 +2,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
@@ -33,6 +33,7 @@ export default function ProductDetailsScreen() {
   const [savingsAmount, setSavingsAmount] = useState(0);
   const [matchReason, setMatchReason] = useState('');
   const [loading, setLoading] = useState(true);
+  const [previewImage, setPreviewImage] = useState('');
   const {
     fromFeatured,
     id,
@@ -158,6 +159,12 @@ export default function ProductDetailsScreen() {
     });
   };
 
+  const openImagePreview = (image?: string) => {
+    if (image) {
+      setPreviewImage(image);
+    }
+  };
+
   const savingsPercent = original.price > 0
     ? Math.round((savingsAmount / original.price) * 100)
     : 0;
@@ -213,7 +220,9 @@ export default function ProductDetailsScreen() {
         ) : (
           <Animated.View entering={FadeInDown.duration(500)} style={styles.productHero}>
             {original.image ? (
-              <Image source={{ uri: original.image }} style={styles.heroImage} contentFit="cover" />
+              <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(original.image)}>
+                <Image source={{ uri: original.image }} style={styles.heroImage} contentFit="cover" />
+              </TouchableOpacity>
             ) : (
               <View style={[styles.heroImage, styles.imagePlaceholder]}>
                 <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
@@ -248,13 +257,15 @@ export default function ProductDetailsScreen() {
                 style={styles.productCard}
                 onPress={() => openProductPage(original)}
               >
-                {original.image ? (
-                  <Image source={{ uri: original.image }} style={styles.productImage} contentFit="cover" />
-                ) : (
-                  <View style={[styles.productImage, styles.imagePlaceholder]}>
-                    <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
-                  </View>
-                )}
+                <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(original.image)}>
+                  {original.image ? (
+                    <Image source={{ uri: original.image }} style={styles.productImage} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.productImage, styles.imagePlaceholder]}>
+                      <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
                 <View style={[styles.labelBadge, styles.originalBadge]}>
                   <Text style={[styles.labelText, styles.originalBadgeText]}>ORIGINAL</Text>
                 </View>
@@ -274,13 +285,15 @@ export default function ProductDetailsScreen() {
                   style={styles.productCard}
                   onPress={() => openProductPage(dupeProduct)}
                 >
-                  {dupeProduct.image ? (
-                    <Image source={{ uri: dupeProduct.image }} style={styles.productImage} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.productImage, styles.imagePlaceholder]}>
-                      <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
-                    </View>
-                  )}
+                  <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(dupeProduct.image)}>
+                    {dupeProduct.image ? (
+                      <Image source={{ uri: dupeProduct.image }} style={styles.productImage} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.productImage, styles.imagePlaceholder]}>
+                        <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
                   <View style={[styles.labelBadge, styles.dupeBadge]}>
                     <Text style={[styles.labelText, styles.dupeBadgeText]}>DUPE</Text>
                   </View>
@@ -365,6 +378,34 @@ export default function ProductDetailsScreen() {
 
         <View style={{ height: spacing.xxxl + spacing.xl }} />
       </ScrollView>
+
+      <Modal
+        visible={Boolean(previewImage)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage('')}
+      >
+        <View style={styles.previewBackdrop}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.previewCloseLayer}
+            onPress={() => setPreviewImage('')}
+          />
+          <View style={styles.previewFrame}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close image preview"
+              onPress={() => setPreviewImage('')}
+              style={styles.previewCloseButton}
+            >
+              <Ionicons name="close" size={24} color={colors.textOnPrimary} />
+            </TouchableOpacity>
+            {previewImage ? (
+              <Image source={{ uri: previewImage }} style={styles.previewImage} contentFit="contain" />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -432,6 +473,8 @@ const styles = StyleSheet.create({
   imagePlaceholderText: {
     ...typography.smallBold,
     color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.sm,
   },
   heroBrand: {
     ...typography.small,
@@ -695,5 +738,41 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.text,
     flex: 1,
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(23, 16, 21, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  previewCloseLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  previewFrame: {
+    width: '100%',
+    maxWidth: 720,
+    height: '78%',
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.pink,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewCloseButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    zIndex: 2,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -244,8 +244,7 @@ def search_products(q: str):
         if key in seen:
             continue
         seen.add(key)
-        enrich_image = len(combined) < 12
-        combined.append(_product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=enrich_image))
+        combined.append(_product_from_record(product, fallback={"id": product.get("firestore_id", "")}))
 
     return combined[:28]
 
