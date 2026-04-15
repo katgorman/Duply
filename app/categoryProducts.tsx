@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ArrowDown, ArrowLeft, Search, Star } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +17,8 @@ const sortOptions: { id: SortOption; label: string }[] = [
   { id: 'popular', label: 'Popular' },
 ];
 
+const pageSizeOptions = [12, 24, 48, 96];
+
 export default function CategoryProductsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ category?: string; title?: string }>();
@@ -24,38 +26,22 @@ export default function CategoryProductsScreen() {
   const title = params.title || 'Category';
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('popular');
-  const { data: products, loading, error } = useProductsByCategory(category);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
+  const { data, loading, error } = useProductsByCategory(category, { page, pageSize, query, sort: sortBy });
+  const products = data?.items || [];
+  const totalProducts = data?.total || 0;
+  const totalPages = data?.totalPages || 1;
 
-  const filteredProducts = useMemo(() => {
-    const items = products || [];
-    const normalizedQuery = query.trim().toLowerCase();
+  useEffect(() => {
+    setPage(1);
+  }, [category, query, sortBy, pageSize]);
 
-    const filtered = normalizedQuery ? items.filter(product => {
-      const brand = product.brand.toLowerCase();
-      const name = product.name.toLowerCase();
-      const productType = product.productType.toLowerCase();
-      return (
-        brand.includes(normalizedQuery) ||
-        name.includes(normalizedQuery) ||
-        productType.includes(normalizedQuery)
-      );
-    }) : items;
-
-    return [...filtered].sort((a, b) => {
-      if (sortBy === 'priceLow') {
-        return a.price - b.price || a.name.localeCompare(b.name);
-      }
-      if (sortBy === 'priceHigh') {
-        return b.price - a.price || a.name.localeCompare(b.name);
-      }
-      if (sortBy === 'popular') {
-        const aPopularity = (a.numberOfReviews || 0) + (a.rating || 0) * 100;
-        const bPopularity = (b.numberOfReviews || 0) + (b.rating || 0) * 100;
-        return bPopularity - aPopularity || a.name.localeCompare(b.name);
-      }
-      return a.name.localeCompare(b.name) || a.brand.localeCompare(b.brand);
-    });
-  }, [products, query, sortBy]);
+  useEffect(() => {
+    if (data?.totalPages && page > data.totalPages) {
+      setPage(data.totalPages);
+    }
+  }, [data?.totalPages, page]);
 
   const openProduct = (id: string, name: string) => {
     router.push({
@@ -73,7 +59,9 @@ export default function CategoryProductsScreen() {
         <View style={styles.headerCenter}>
           <Text style={styles.title}>{title}</Text>
           {!loading && !error ? (
-            <Text style={styles.subtitle}>{filteredProducts.length} products</Text>
+            <Text style={styles.subtitle}>
+              {totalProducts} products • page {Math.min(page, totalPages)} of {totalPages}
+            </Text>
           ) : null}
         </View>
         <View style={{ width: 40 }} />
@@ -127,6 +115,28 @@ export default function CategoryProductsScreen() {
         </ScrollView>
       </View>
 
+      <View style={styles.pageSizeBlock}>
+        <Text style={styles.pageSizeLabel}>Results per page</Text>
+        <View style={styles.pageSizeOptions}>
+          {pageSizeOptions.map(size => {
+            const active = pageSize === size;
+            return (
+              <Pressable
+                key={size}
+                onPress={() => setPageSize(size)}
+                style={({ pressed }) => [
+                  styles.pageSizeChip,
+                  active && styles.pageSizeChipActive,
+                  pressed && styles.sortChipPressed,
+                ]}
+              >
+                <Text style={[styles.pageSizeChipText, active && styles.pageSizeChipTextActive]}>{size}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       {loading ? (
         <View style={styles.loadingWrap}>
           {[1, 2, 3, 4].map(i => (
@@ -138,40 +148,61 @@ export default function CategoryProductsScreen() {
           <Text style={styles.stateTitle}>Couldn’t load products</Text>
           <Text style={styles.stateSubtitle}>{error}</Text>
         </View>
-      ) : filteredProducts.length === 0 ? (
+      ) : products.length === 0 ? (
         <View style={styles.centerState}>
           <Text style={styles.stateTitle}>No products found</Text>
           <Text style={styles.stateSubtitle}>Try a different search inside this category</Text>
         </View>
       ) : (
-        <FlatList
-          data={filteredProducts}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() => openProduct(item.id, item.name)}
-            >
-              {item.image ? (
-                <Image source={{ uri: item.image }} style={styles.image} contentFit="cover" />
-              ) : (
-                <View style={[styles.image, styles.imagePlaceholder]}>
-                  <Text style={styles.placeholderText}>Image unavailable</Text>
+        <>
+          <FlatList
+            data={products}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                onPress={() => openProduct(item.id, item.name)}
+              >
+                {item.image ? (
+                  <Image source={{ uri: item.image }} style={styles.image} contentFit="cover" />
+                ) : (
+                  <View style={[styles.image, styles.imagePlaceholder]}>
+                    <Text style={styles.placeholderText}>Image unavailable</Text>
+                  </View>
+                )}
+                <View style={styles.info}>
+                  <Text style={styles.brand}>{item.brand}</Text>
+                  <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.type}>{item.productType}</Text>
+                    <Text style={styles.price}>${item.price.toFixed(2)}</Text>
+                  </View>
                 </View>
-              )}
-              <View style={styles.info}>
-                <Text style={styles.brand}>{item.brand}</Text>
-                <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-                <View style={styles.metaRow}>
-                  <Text style={styles.type}>{item.productType}</Text>
-                  <Text style={styles.price}>${item.price.toFixed(2)}</Text>
-                </View>
+              </Pressable>
+            )}
+            ListFooterComponent={
+              <View style={styles.pagination}>
+                <Pressable
+                  disabled={page <= 1}
+                  onPress={() => setPage(prev => Math.max(1, prev - 1))}
+                  style={[styles.pageButton, page <= 1 && styles.pageButtonDisabled]}
+                >
+                  <Text style={[styles.pageButtonText, page <= 1 && styles.pageButtonTextDisabled]}>Previous</Text>
+                </Pressable>
+                <Text style={styles.pageCount}>Page {page} of {totalPages}</Text>
+                <Pressable
+                  disabled={page >= totalPages}
+                  onPress={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                  style={[styles.pageButton, page >= totalPages && styles.pageButtonDisabled]}
+                >
+                  <Text style={[styles.pageButtonText, page >= totalPages && styles.pageButtonTextDisabled]}>Next</Text>
+                </Pressable>
               </View>
-            </Pressable>
-          )}
-        />
+            }
+          />
+        </>
       )}
     </SafeAreaView>
   );
@@ -278,12 +309,79 @@ const styles = StyleSheet.create({
   sortChipTextActive: {
     color: colors.textOnPrimary,
   },
+  pageSizeBlock: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  pageSizeLabel: {
+    ...typography.smallBold,
+    color: colors.primary,
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm,
+  },
+  pageSizeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  pageSizeChip: {
+    minWidth: 52,
+    alignItems: 'center',
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  pageSizeChipActive: {
+    backgroundColor: colors.primary,
+  },
+  pageSizeChipText: {
+    ...typography.captionBold,
+    color: colors.primary,
+  },
+  pageSizeChipTextActive: {
+    color: colors.textOnPrimary,
+  },
   loadingWrap: {
     paddingHorizontal: spacing.lg,
   },
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxxl,
+  },
+  pagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingVertical: spacing.lg,
+  },
+  pageButton: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  pageButtonDisabled: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+  },
+  pageButtonText: {
+    ...typography.captionBold,
+    color: colors.textOnPrimary,
+  },
+  pageButtonTextDisabled: {
+    color: colors.textMuted,
+  },
+  pageCount: {
+    ...typography.captionBold,
+    color: colors.primary,
+    textAlign: 'center',
+    flex: 1,
   },
   card: {
     flexDirection: 'row',

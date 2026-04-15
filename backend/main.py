@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from firestore_products import (
+    category_counts,
     fetch_firestore_product,
     get_firestore_product_by_id,
     list_products_by_category,
@@ -251,15 +252,52 @@ def search_products(q: str):
 
 
 @app.get("/products/category/{category_or_type}")
-def get_products_by_category(category_or_type: str):
-    results = list_products_by_category(category_or_type, limit=200)
+def get_products_by_category(category_or_type: str, page: int = 1, page_size: int = 24, q: str = "", sort: str = "popular"):
+    result = list_products_by_category(
+        category_or_type,
+        limit=page_size,
+        page=page,
+        query=q,
+        sort_by=sort,
+    )
+    return {
+        **result,
+        "items": [
+            _product_from_record(
+                product,
+                fallback={"id": product.get("firestore_id", "")},
+                enrich_image=index < 8,
+            )
+            for index, product in enumerate(result["items"])
+        ],
+    }
+
+
+@app.get("/categories")
+def get_categories():
+    counts = category_counts()
+    category_meta = [
+        {"id": "eyes", "name": "Eyes", "emoji": "", "productType": "eyes", "color": "#FFF9F0"},
+        {"id": "lips", "name": "Lips", "emoji": "", "productType": "lips", "color": "#FFE4F0"},
+        {"id": "face", "name": "Face", "emoji": "", "productType": "face", "color": "#F7C6D9"},
+        {"id": "skincare", "name": "Skincare", "emoji": "", "productType": "skincare", "color": "#FFF6F9"},
+        {"id": "other", "name": "Other", "emoji": "", "productType": "other", "color": "#2A0B26"},
+    ]
+    return [
+        {**category, "count": counts.get(category["productType"], 0)}
+        for category in category_meta
+    ]
+
+
+def _legacy_category_products(category_or_type: str):
+    result = list_products_by_category(category_or_type, limit=24, page=1)
     return [
         _product_from_record(
             product,
             fallback={"id": product.get("firestore_id", "")},
-            enrich_image=index < 12,
+            enrich_image=index < 8,
         )
-        for index, product in enumerate(results)
+        for index, product in enumerate(result["items"])
     ]
 
 

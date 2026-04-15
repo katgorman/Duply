@@ -21,6 +21,15 @@ def normalize_text(value):
     return str(value).strip().lower()
 
 
+def _safe_float(value):
+    try:
+        if value is None or value == "":
+            return 0.0
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _init_firestore():
     if firebase_admin is None or credentials is None or firestore is None:
         return None
@@ -613,7 +622,7 @@ def search_firestore_products(query, limit=20):
     return results
 
 
-def list_products_by_category(category_or_type, limit=200):
+def _category_matches(category_or_type):
     normalized_target = normalize_product_type(category_or_type)
     if not normalized_target:
         return []
@@ -632,13 +641,59 @@ def list_products_by_category(category_or_type, limit=200):
             continue
         matches.append(product)
 
+    return matches
+
+
+def _category_sort_key(product, sort_by):
+    name = normalize_text(product.get("product_name"))
+    brand = normalize_text(product.get("brand"))
+    price = _safe_float(product.get("price"))
+    rating = _safe_float(product.get("rating"))
+    reviews = _safe_float(product.get("noofratings"))
+    popularity = reviews + (rating * 100)
+
+    if sort_by == "priceLow":
+        return (price <= 0, price, name, brand)
+    if sort_by == "priceHigh":
+        return (price <= 0, -price, name, brand)
+    if sort_by == "az":
+        return (name, brand)
+    return (-popularity, name, brand)
+
+
+def count_products_by_category(category_or_type):
+    return len(_category_matches(category_or_type))
+
+
+def category_counts():
+    return {category: count_products_by_category(category) for category in [*CATEGORY_BUCKETS.keys(), "other"]}
+
+
+def list_products_by_category(category_or_type, limit=24, page=1, query="", sort_by="popular"):
+    normalized_query = normalize_text(query)
+    query_tokens = [token for token in normalized_query.split() if token]
+    matches = _category_matches(category_or_type)
+
+    if normalized_query:
+        matches = [
+            product for product in matches
+            if _product_search_score(product, normalized_query, query_tokens) >= 0
+        ]
+
     matches.sort(
-        key=lambda product: (
-            _product_bucket(product),
-            normalize_text(product.get("subcategory") or product.get("type")),
-            normalize_text(product.get("brand")),
-            normalize_text(product.get("product_name")),
-        )
+        key=lambda product: _category_sort_key(product, sort_by)
     )
 
-    return matches[:limit]
+    total = len(matches)
+    safe_limit = max(1, min(int(limit or 24), 100))
+    safe_page = max(1, int(page or 1))
+    start = (safe_page - 1) * safe_limit
+    end = start + safe_limit
+
+    return {
+        "items": matches[start:end],
+        "total": total,
+        "page": safe_page,
+        "pageSize": safe_limit,
+        "totalPages": max(1, (total + safe_limit - 1) // safe_limit),
+    }

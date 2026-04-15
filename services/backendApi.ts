@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { Dupe, PriceOffer, Product } from './api';
+import type { Category, CategoryProductsPage, Dupe, PriceOffer, Product } from './api';
 
 function sanitizeBaseUrl(value: string | undefined | null): string {
   const trimmed = (value || '').trim();
@@ -49,8 +49,8 @@ export async function searchProductsFromBackend(query: string): Promise<Product[
   return JSON.parse(text);
 }
 
-export async function getProductsByCategoryFromBackend(category: string): Promise<Product[]> {
-  const response = await fetch(`${BASE_URL}/products/category/${encodeURIComponent(category)}`);
+export async function getCategoriesFromBackend(): Promise<Category[]> {
+  const response = await fetch(`${BASE_URL}/categories`);
   const text = await response.text();
 
   if (!response.ok) {
@@ -58,6 +58,40 @@ export async function getProductsByCategoryFromBackend(category: string): Promis
   }
 
   return JSON.parse(text);
+}
+
+export async function getProductsByCategoryFromBackend(
+  category: string,
+  options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},
+): Promise<CategoryProductsPage> {
+  const params = new URLSearchParams({
+    page: String(options.page || 1),
+    page_size: String(options.pageSize || 24),
+    sort: options.sort || 'popular',
+  });
+  if (options.query?.trim()) {
+    params.set('q', options.query.trim());
+  }
+
+  const response = await fetch(`${BASE_URL}/products/category/${encodeURIComponent(category)}?${params.toString()}`);
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Backend error ${response.status}: ${text}`);
+  }
+
+  const parsed = JSON.parse(text);
+  if (Array.isArray(parsed)) {
+    return {
+      items: parsed,
+      total: parsed.length,
+      page: 1,
+      pageSize: parsed.length || options.pageSize || 24,
+      totalPages: 1,
+    };
+  }
+
+  return parsed;
 }
 
 

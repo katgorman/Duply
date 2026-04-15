@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Category, Dupe, Product } from '../services/api';
+import type { Category, CategoryProductsPage, Dupe, Product } from '../services/api';
 import { dataService } from '../services/api';
 
 interface AsyncState<T> {
@@ -39,10 +39,13 @@ export function useCategories() {
   return useAsync<Category[]>(() => dataService.getCategories(), []);
 }
 
-export function useProductsByCategory(category: string) {
-  return useAsync<Product[]>(
-    () => dataService.getProductsByCategory(category),
-    [category],
+export function useProductsByCategory(
+  category: string,
+  options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},
+) {
+  return useAsync<CategoryProductsPage>(
+    () => dataService.getProductsByCategory(category, options),
+    [category, options.page, options.pageSize, options.query, options.sort],
   );
 }
 

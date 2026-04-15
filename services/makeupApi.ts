@@ -1,5 +1,5 @@
 import type { Category, DataService, Dupe, Product, ProductColor } from './api';
-import { findDupesFromBackend, findPriceMatchesFromBackend, getProductByIdFromBackend, getProductsByCategoryFromBackend, searchProductsFromBackend } from './backendApi';
+import { findDupesFromBackend, findPriceMatchesFromBackend, getCategoriesFromBackend, getProductByIdFromBackend, getProductsByCategoryFromBackend, searchProductsFromBackend } from './backendApi';
 
 const BASE_URL = 'https://makeup-api.herokuapp.com/api/v1/products.json';
 
@@ -87,8 +87,8 @@ export const makeupApiService: DataService = {
     return searchProductsFromBackend(query);
   },
 
-  async getProductsByCategory(category: string): Promise<Product[]> {
-    return getProductsByCategoryFromBackend(category);
+  async getProductsByCategory(category: string, options) {
+    return getProductsByCategoryFromBackend(category, options);
   },
 
   async getProductById(id: string): Promise<Product | null> {
@@ -104,13 +104,7 @@ export const makeupApiService: DataService = {
   },
 
   async getCategories(): Promise<Category[]> {
-    return [
-      { id: 'eyes', name: 'Eyes', emoji: '', productType: 'eyes', color: '#FFF9F0' },
-      { id: 'lips', name: 'Lips', emoji: '', productType: 'lips', color: '#FFE4F0' },
-      { id: 'face', name: 'Face', emoji: '', productType: 'face', color: '#F7C6D9' },
-      { id: 'skincare', name: 'Skincare', emoji: '', productType: 'skincare', color: '#FFF6F9' },
-      { id: 'other', name: 'Other', emoji: '', productType: 'other', color: '#2A0B26' },
-    ];
+    return getCategoriesFromBackend();
   },
 
   async getFeaturedDupes(): Promise<Dupe[]> {

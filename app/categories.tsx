@@ -42,6 +42,9 @@ export default function CategoriesScreen() {
                 >
                   <View style={[styles.cardGradient, { backgroundColor: cat.color }]}>
                     <Text style={[styles.cardText, cat.id === 'other' && styles.cardTextDark]}>{cat.name}</Text>
+                    <Text style={[styles.cardCount, cat.id === 'other' && styles.cardCountDark]}>
+                      {cat.count ?? 0} products
+                    </Text>
                     <Text style={[styles.cardStar, cat.id === 'other' && styles.cardStarDark]}>*</Text>
                   </View>
                 </Pressable>
@@ -110,6 +113,15 @@ const styles = StyleSheet.create({
     color: colors.text,
     textTransform: 'uppercase',
     zIndex: 1,
+  },
+  cardCount: {
+    ...typography.captionBold,
+    color: colors.primary,
+    marginTop: spacing.xs,
+    zIndex: 1,
+  },
+  cardCountDark: {
+    color: colors.cream,
   },
   cardTextDark: {
     color: colors.surface,

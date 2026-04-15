@@ -55,11 +55,20 @@ export interface Category {
   emoji: string;
   productType: string;
   color: string;
+  count?: number;
+}
+
+export interface CategoryProductsPage {
+  items: Product[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface DataService {
   searchProducts(query: string): Promise<Product[]>;
-  getProductsByCategory(category: string): Promise<Product[]>;
+  getProductsByCategory(category: string, options?: { page?: number; pageSize?: number; query?: string; sort?: string }): Promise<CategoryProductsPage>;
   getProductById(id: string): Promise<Product | null>;
   findDupes(product: Product): Promise<Dupe[]>;
   findPriceMatches(product: Product): Promise<PriceOffer[]>;
