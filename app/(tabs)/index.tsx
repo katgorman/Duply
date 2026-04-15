@@ -125,6 +125,16 @@ export default function HomeScreen() {
           </Animated.View>
         </LinearGradient>
 
+        <Animated.View entering={FadeInDown.delay(430).duration(500)} style={styles.section}>
+          <View style={styles.disclaimerCard}>
+            <Text style={styles.disclaimerTitle}>Early Demo Disclaimer</Text>
+            <Text style={styles.disclaimerBody}>
+              Duply is still in its early demo stage, so it does not yet include every makeup product on the market. We
+              are also actively working on adding stronger product image support.
+            </Text>
+          </View>
+        </Animated.View>
+
         {Platform.OS === 'web' ? (
           <Animated.View entering={FadeInDown.delay(460).duration(500)} style={styles.section}>
             <View style={styles.installCard}>
@@ -444,5 +454,24 @@ const styles = StyleSheet.create({
   installButtonText: {
     ...typography.captionBold,
     color: colors.textOnPrimary,
+  },
+  disclaimerCard: {
+    marginHorizontal: spacing.lg,
+    padding: spacing.xl,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.sm,
+  },
+  disclaimerTitle: {
+    ...typography.bodyBold,
+    color: colors.primary,
+  },
+  disclaimerBody: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 20,
   },
 });

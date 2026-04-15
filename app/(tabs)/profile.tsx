@@ -4,7 +4,7 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Bookmark, DollarSign, Info, Lock, RefreshCw, Settings, Star, User } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, gradients, radius, shadows, spacing, typography } from '../../constants/theme';
+import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useProfile } from '../../hooks/useProfile';
 
@@ -27,7 +27,7 @@ function ProfileUnavailableScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.lockedScroll}>
-        <LinearGradient colors={[...gradients.header]} style={styles.lockedHeader}>
+        <LinearGradient colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]} style={styles.lockedHeader}>
           <View style={styles.lockedIconWrap}>
             <Lock width={34} height={34} stroke={colors.primary} />
           </View>
@@ -65,7 +65,7 @@ function LegacyProfileContent() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <LinearGradient colors={[...gradients.header]} style={styles.header}>
+        <LinearGradient colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]} style={styles.header}>
           <View style={styles.avatarCircle}>
             <User width={32} height={32} stroke={colors.primary} />
           </View>
@@ -232,21 +232,21 @@ const styles = StyleSheet.create({
   },
   name: {
     ...typography.h2,
-    color: colors.textOnPrimary,
+    color: colors.primary,
   },
   email: {
     ...typography.caption,
-    color: '#ffe5ef',
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
   lockedTitle: {
     ...typography.h2,
-    color: colors.textOnPrimary,
+    color: colors.primary,
     textAlign: 'center',
   },
   lockedSubtitle: {
     ...typography.caption,
-    color: '#ffe5ef',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.md,
     maxWidth: 320,
@@ -374,8 +374,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   chipActive: {
-    backgroundColor: colors.accentLight,
-    borderColor: colors.accent,
+    backgroundColor: colors.tabActiveBg,
+    borderColor: colors.borderAccent,
   },
   chipText: {
     ...typography.small,
