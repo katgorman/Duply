@@ -1,4 +1,4 @@
-import type { Category, DataService, Dupe, Product } from './api';
+import type { Category, DataService, Dupe, PriceOffer, Product } from './api';
 
 /**
  * Legacy stub kept only as a placeholder.
@@ -20,6 +20,10 @@ export const firebaseApiService: DataService = {
   },
 
   async findDupes(_product: Product): Promise<Dupe[]> {
+    throw new Error('Use the backend-backed data service instead of firebaseApiService');
+  },
+
+  async findPriceMatches(_product: Product): Promise<PriceOffer[]> {
     throw new Error('Use the backend-backed data service instead of firebaseApiService');
   },
 

@@ -2,14 +2,14 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { useActivity } from '../hooks/useActivity';
 import { useFavorites } from '../hooks/useFavorites';
-import type { Product } from '../services/api';
+import type { PriceOffer, Product } from '../services/api';
 import { dataService } from '../services/api';
 
 export default function ProductDetailsScreen() {
@@ -34,6 +34,9 @@ export default function ProductDetailsScreen() {
   const [matchReason, setMatchReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [previewImage, setPreviewImage] = useState('');
+  const [priceOffers, setPriceOffers] = useState<PriceOffer[]>([]);
+  const [priceOffersLoading, setPriceOffersLoading] = useState(false);
+  const [priceOffersError, setPriceOffersError] = useState('');
   const {
     fromFeatured,
     id,
@@ -96,6 +99,41 @@ export default function ProductDetailsScreen() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadPriceMatches = async () => {
+      if (!original?.name) {
+        setPriceOffers([]);
+        return;
+      }
+
+      setPriceOffersLoading(true);
+      setPriceOffersError('');
+      try {
+        const offers = await dataService.findPriceMatches(original);
+        if (active) {
+          setPriceOffers(offers);
+        }
+      } catch {
+        if (active) {
+          setPriceOffers([]);
+          setPriceOffersError('Price matching is not available right now.');
+        }
+      } finally {
+        if (active) {
+          setPriceOffersLoading(false);
+        }
+      }
+    };
+
+    loadPriceMatches();
+
+    return () => {
+      active = false;
+    };
+  }, [original]);
 
   if (loading) {
     return (
@@ -168,6 +206,12 @@ export default function ProductDetailsScreen() {
   const openImagePreview = (image?: string) => {
     if (image) {
       setPreviewImage(image);
+    }
+  };
+
+  const openOffer = (offer: PriceOffer) => {
+    if (offer.url) {
+      Linking.openURL(offer.url);
     }
   };
 
@@ -253,6 +297,49 @@ export default function ProductDetailsScreen() {
             </View>
           </Animated.View>
         )}
+
+        <Animated.View entering={FadeInDown.delay(175).duration(400)}>
+          <Text style={styles.sectionTitle}>Price Match</Text>
+          <View style={styles.priceMatchBox}>
+            <View style={styles.priceMatchHeader}>
+              <View>
+                <Text style={styles.priceMatchEyebrow}>Current lowest online</Text>
+                <Text style={styles.priceMatchTitle}>
+                  {priceOffers[0] ? `$${priceOffers[0].price.toFixed(2)} at ${priceOffers[0].retailer}` : 'Checking retailers'}
+                </Text>
+              </View>
+              {priceOffersLoading ? <Text style={styles.priceMatchStatus}>Live search...</Text> : null}
+            </View>
+
+            {priceOffersError ? <Text style={styles.priceMatchError}>{priceOffersError}</Text> : null}
+
+            {!priceOffersLoading && !priceOffersError && priceOffers.length === 0 ? (
+              <Text style={styles.priceMatchEmpty}>No verified retailer offers found yet.</Text>
+            ) : null}
+
+            {priceOffers.slice(0, 4).map((offer, index) => (
+              <TouchableOpacity
+                key={offer.id}
+                activeOpacity={0.86}
+                style={[styles.offerRow, index === 0 && styles.bestOfferRow]}
+                onPress={() => openOffer(offer)}
+              >
+                <View style={styles.offerInfo}>
+                  <View style={styles.offerMetaRow}>
+                    <Text style={styles.offerRetailer}>{offer.retailer}</Text>
+                    {index === 0 ? <Text style={styles.bestOfferPill}>Best price</Text> : null}
+                  </View>
+                  <Text style={styles.offerTitle} numberOfLines={2}>{offer.title}</Text>
+                  {offer.shipping ? <Text style={styles.offerShipping} numberOfLines={1}>{offer.shipping}</Text> : null}
+                </View>
+                <View style={styles.offerAction}>
+                  <Text style={styles.offerPrice}>${offer.price.toFixed(2)}</Text>
+                  <Feather name="external-link" size={16} color={colors.primary} />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
 
         {isComparisonView && (
           <Animated.View entering={FadeInDown.delay(200).duration(400)}>
@@ -574,6 +661,101 @@ const styles = StyleSheet.create({
   savingsPercent: {
     ...typography.small,
     color: colors.textSecondary,
+  },
+  priceMatchBox: {
+    marginHorizontal: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.sm,
+    gap: spacing.md,
+  },
+  priceMatchHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  priceMatchEyebrow: {
+    ...typography.smallBold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0,
+  },
+  priceMatchTitle: {
+    ...typography.h3,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  priceMatchStatus: {
+    ...typography.smallBold,
+    color: colors.accentDark,
+  },
+  priceMatchError: {
+    ...typography.smallBold,
+    color: colors.error,
+  },
+  priceMatchEmpty: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  offerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.cream,
+  },
+  bestOfferRow: {
+    borderColor: colors.primary,
+    backgroundColor: colors.accentLight,
+  },
+  offerInfo: {
+    flex: 1,
+  },
+  offerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  offerRetailer: {
+    ...typography.captionBold,
+    color: colors.primary,
+  },
+  bestOfferPill: {
+    ...typography.smallBold,
+    color: colors.textOnPrimary,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  offerTitle: {
+    ...typography.small,
+    color: colors.text,
+    marginTop: 3,
+    lineHeight: 18,
+  },
+  offerShipping: {
+    ...typography.small,
+    color: colors.textMuted,
+    marginTop: 3,
+  },
+  offerAction: {
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  offerPrice: {
+    ...typography.bodyBold,
+    color: colors.primary,
   },
   sectionTitle: {
     ...typography.bodyBold,

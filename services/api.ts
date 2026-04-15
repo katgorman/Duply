@@ -28,6 +28,18 @@ export interface ProductColor {
   hex: string;
 }
 
+export interface PriceOffer {
+  id: string;
+  retailer: string;
+  title: string;
+  price: number;
+  url: string;
+  image?: string;
+  shipping?: string;
+  source?: string;
+  matchConfidence?: number;
+}
+
 export interface Dupe {
   id: string;
   original: Product;
@@ -50,6 +62,7 @@ export interface DataService {
   getProductsByCategory(category: string): Promise<Product[]>;
   getProductById(id: string): Promise<Product | null>;
   findDupes(product: Product): Promise<Dupe[]>;
+  findPriceMatches(product: Product): Promise<PriceOffer[]>;
   getCategories(): Promise<Category[]>;
   getFeaturedDupes(): Promise<Dupe[]>;
 }

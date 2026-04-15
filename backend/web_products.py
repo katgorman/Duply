@@ -27,6 +27,7 @@ _allowed_brands = None
 _search_cache = {}
 _image_cache = {}
 _web_product_cache = {}
+_price_match_cache = {}
 
 
 def _load_allowed_brands():
@@ -227,6 +228,81 @@ def _meaningful_tokens(value):
     return [token for token in tokens if len(token) > 2 and token not in stopwords]
 
 
+def _price_match_cache_key(brand, product_name, limit):
+    return ("price-match", normalize_text(brand), normalize_text(product_name), limit)
+
+
+def _source_domain(url):
+    match = re.search(r"https?://(?:www\.)?([^/?#]+)", str(url or ""), flags=re.IGNORECASE)
+    return match.group(1).lower() if match else ""
+
+
+def _offer_retailer(item):
+    source = str(item.get("source") or item.get("seller") or item.get("merchant") or "").strip()
+    if source:
+        return source
+
+    domain = _source_domain(item.get("product_link") or item.get("link") or "")
+    if not domain:
+        return "Retailer"
+
+    return domain.split(".")[0].replace("-", " ").title()
+
+
+def _offer_shipping(item):
+    delivery = item.get("delivery") or item.get("shipping") or ""
+    if isinstance(delivery, list):
+        return ", ".join(str(part) for part in delivery if part)
+    return str(delivery or "").strip()
+
+
+def _title_match_confidence(title, brand, product_name):
+    text = normalize_text(title)
+    brand_text = normalize_text(brand)
+    tokens = _meaningful_tokens(product_name)
+
+    if brand_text and brand_text not in text:
+        return 0
+
+    if not tokens:
+        return 60 if brand_text else 0
+
+    matched = sum(1 for token in tokens[:8] if token in text)
+    token_score = matched / min(len(tokens), 8)
+    brand_bonus = 25 if brand_text and brand_text in text else 0
+    return round((token_score * 75) + brand_bonus)
+
+
+def _normalize_offer(item, brand, product_name, index):
+    title = str(item.get("title") or "").strip()
+    url = item.get("product_link") or item.get("link") or ""
+    price = _extract_price(item.get("extracted_price") or item.get("price"))
+    confidence = _title_match_confidence(title, brand, product_name)
+
+    if not title or not url or price <= 0 or confidence < 45:
+        return None
+
+    raw_key = "|".join([
+        normalize_text(title),
+        normalize_text(_offer_retailer(item)),
+        normalize_text(url),
+    ])
+    digest = hashlib.sha1(raw_key.encode("utf-8")).hexdigest()[:14]
+
+    return {
+        "id": f"offer-{digest}",
+        "retailer": _offer_retailer(item),
+        "title": title,
+        "price": price,
+        "url": url,
+        "image": item.get("thumbnail") or item.get("serpapi_thumbnail") or "",
+        "shipping": _offer_shipping(item),
+        "source": item.get("source") or "",
+        "matchConfidence": confidence,
+        "rank": index,
+    }
+
+
 def _looks_like_product_image_result(item, brand, product_name):
     text = normalize_text(" ".join([
         str(item.get("title") or ""),
@@ -416,3 +492,51 @@ def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
 
     _cache_set(_search_cache, cache_key, results)
     return results
+
+
+def find_price_matches(brand, product_name, limit=8):
+    brand = str(brand or "").strip()
+    product_name = str(product_name or "").strip()
+    if not SERPAPI_API_KEY or not product_name:
+        return []
+
+    cache_key = _price_match_cache_key(brand, product_name, limit)
+    cached = _cache_get(_price_match_cache, cache_key)
+    if cached is not None:
+        return cached
+
+    query = f"{brand} {product_name}".strip()
+    try:
+        response = _serpapi_get({
+            "engine": "google_shopping",
+            "q": query,
+            "api_key": SERPAPI_API_KEY,
+            "num": str(max(limit * 2, 12)),
+        })
+    except Exception:
+        _cache_set(_price_match_cache, cache_key, [])
+        return []
+
+    items = response.get("shopping_results") or []
+    offers = []
+    seen = set()
+
+    for index, item in enumerate(items):
+        offer = _normalize_offer(item, brand, product_name, index)
+        if not offer:
+            continue
+
+        dedupe_key = (
+            normalize_text(offer["retailer"]),
+            normalize_text(offer["title"]),
+            round(offer["price"], 2),
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        offers.append(offer)
+
+    offers.sort(key=lambda offer: (offer["price"], -offer["matchConfidence"], offer["rank"]))
+    normalized_offers = [{key: value for key, value in offer.items() if key != "rank"} for offer in offers[:limit]]
+    _cache_set(_price_match_cache, cache_key, normalized_offers)
+    return normalized_offers

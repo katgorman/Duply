@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { Dupe, Product } from './api';
+import type { Dupe, PriceOffer, Product } from './api';
 
 function sanitizeBaseUrl(value: string | undefined | null): string {
   const trimmed = (value || '').trim();
@@ -107,4 +107,31 @@ export async function findDupesFromBackend(product: Product): Promise<Dupe[]> {
   console.log('Parsed backend dupes:', data);
 
   return data;
+}
+
+export async function findPriceMatchesFromBackend(product: Product): Promise<PriceOffer[]> {
+  const response = await fetch(`${BASE_URL}/products/price-matches`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: product.id,
+      brand: product.brand,
+      name: product.name,
+      price: product.price,
+      image: product.image,
+      category: product.category,
+      productType: product.productType,
+      productUrl: product.productUrl,
+    }),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Backend error ${response.status}: ${text}`);
+  }
+
+  return JSON.parse(text);
 }

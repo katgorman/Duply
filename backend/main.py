@@ -14,7 +14,7 @@ from firestore_products import (
     search_firestore_products,
 )
 from recommendation_system import find_dupes, get_recommendation_status, lookup_product
-from web_products import find_product_image, get_web_product_by_id, search_web_products
+from web_products import find_price_matches, find_product_image, get_web_product_by_id, search_web_products
 
 app = FastAPI()
 
@@ -276,6 +276,24 @@ def get_product(product_id: str):
         raise HTTPException(status_code=404, detail="Product not found")
 
     return _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True)
+
+
+@app.post("/products/price-matches")
+async def get_price_matches(request: Request):
+    try:
+        body = await request.json()
+        brand = body.get("brand", "")
+        name = body.get("name", "")
+
+        if not name:
+            raise HTTPException(status_code=400, detail="Product name is required")
+
+        return find_price_matches(brand, name, limit=8)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("Error in /products/price-matches:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/dupes")
