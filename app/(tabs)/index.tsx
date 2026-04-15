@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   menuBtn: {
     padding: spacing.sm,
     borderRadius: radius.full,
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
     borderWidth: 2,
     borderColor: colors.primary,
   },
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   },
   kicker: {
     alignSelf: 'center',
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
     borderRadius: radius.full,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,

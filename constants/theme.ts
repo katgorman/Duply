@@ -5,20 +5,20 @@ export const colors = {
   primary: '#2A0B26',
   primaryLight: '#7A1548',
   accent: '#A33100',
-  accentLight: '#FFE07A',
+  accentLight: '#FFF6F9',
   accentDark: '#7A2400',
   pink: '#FFD1E8',
-  yellow: '#FFE07A',
+  cream: '#FFF9F0',
   red: '#B00020',
   purple: '#7A1548',
   rose: '#D61F69',
-  softGold: '#FFE7A6',
+  softGold: '#FFF2DC',
   wine: '#2A0B26',
   clottedCream: '#FFF7FB',
   strawberryMilk: '#FFD1E8',
 
   gradientStart: '#FFF7FB',
-  gradientMid: '#FFE07A',
+  gradientMid: '#FFF9F0',
   gradientEnd: '#FFD1E8',
 
   background: '#FFF7FB',
@@ -45,7 +45,7 @@ export const colors = {
 
   tabInactive: '#5D4A55',
   tabActive: '#2A0B26',
-  tabActiveBg: '#FFE07A',
+  tabActiveBg: '#FFF9F0',
 
   skeleton: '#F2D6E3',
   skeletonHighlight: '#FFF7FB',
@@ -53,10 +53,10 @@ export const colors = {
 
 export const gradients = {
   main: [colors.background, colors.surfaceElevated, '#FFF2F8'] as const,
-  hero: [colors.yellow, colors.accentLight, colors.pink] as const,
-  header: [colors.yellow, colors.accentLight] as const,
+  hero: [colors.cream, colors.accentLight, colors.pink] as const,
+  header: [colors.cream, colors.accentLight] as const,
   card: [colors.surface, colors.surfaceElevated] as const,
-  matchScore: [colors.yellow, colors.accentLight, colors.surface] as const,
+  matchScore: [colors.cream, colors.accentLight, colors.surface] as const,
 } as const;
 
 export const spacing = {

@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   matchBadge: {
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,

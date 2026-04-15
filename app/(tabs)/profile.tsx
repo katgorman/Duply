@@ -78,7 +78,7 @@ function LegacyProfileContent() {
             <View style={styles.statsRow}>
               <StatItem icon={Bookmark} value={savedItems} label="Saved" bg={colors.accentLight} color={colors.primary} />
               <StatItem icon={DollarSign} value={`$${totalSavings.toFixed(0)}`} label="Savings" bg={colors.successLight} color={colors.success} />
-              <StatItem icon={Star} value={savedComparisons} label="Comparisons" bg={colors.yellow} color={colors.primary} />
+              <StatItem icon={Star} value={savedComparisons} label="Comparisons" bg={colors.cream} color={colors.primary} />
             </View>
             <Text style={styles.statsCaption}>
               {savedProducts} saved product page{savedProducts === 1 ? '' : 's'} and {savedComparisons} saved dupe comparison{savedComparisons === 1 ? '' : 's'}

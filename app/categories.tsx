@@ -123,6 +123,6 @@ const styles = StyleSheet.create({
     lineHeight: 82,
   },
   cardStarDark: {
-    color: colors.yellow,
+    color: colors.cream,
   },
 });

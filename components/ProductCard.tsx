@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   },
   matchBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
     paddingHorizontal: spacing.sm,
     paddingVertical: 5,
     borderRadius: radius.full,

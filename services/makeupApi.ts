@@ -101,7 +101,7 @@ export const makeupApiService: DataService = {
 
   async getCategories(): Promise<Category[]> {
     return [
-      { id: 'eyes', name: 'Eyes', emoji: '', productType: 'eyes', color: '#FFE07A' },
+      { id: 'eyes', name: 'Eyes', emoji: '', productType: 'eyes', color: '#FFF9F0' },
       { id: 'lips', name: 'Lips', emoji: '', productType: 'lips', color: '#FFD1E8' },
       { id: 'face', name: 'Face', emoji: '', productType: 'face', color: '#FFB36B' },
       { id: 'skincare', name: 'Skincare', emoji: '', productType: 'skincare', color: '#FFF0C2' },

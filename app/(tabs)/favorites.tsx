@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
     borderWidth: 2,
     borderColor: colors.primary,
   },
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   comparisonBadge: {
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.cream,
   },
   productBadge: {
     backgroundColor: colors.accentLight,
