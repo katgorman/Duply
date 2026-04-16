@@ -41,7 +41,7 @@ export default function HomeScreen() {
   const showingSuggestions = query.trim().length > 0;
   const androidAppUrl = ((Constants.expoConfig as any)?.extra?.androidAppUrl || '').trim();
   const marqueeOffset = useSharedValue(0);
-  const marqueeItemWidth = 104;
+  const marqueeItemWidth = 88;
   const marqueeRepeatCount = Math.max(6, Math.ceil(width / marqueeItemWidth) + 3);
   const marqueeTrackWidth = marqueeItemWidth * marqueeRepeatCount;
 
@@ -325,18 +325,18 @@ const styles = StyleSheet.create({
   },
   brandWordmarkFrame: {
     flex: 1,
-    height: 74,
-    maxWidth: 332,
+    height: 82,
+    maxWidth: 372,
     marginHorizontal: spacing.sm,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandWordmarkImage: {
-    width: 356,
-    height: 108,
-    marginLeft: -20,
-    marginTop: -8,
+    width: 406,
+    height: 122,
+    marginLeft: -24,
+    marginTop: -10,
   },
   scrollContent: {
     paddingBottom: spacing.xxxl,
@@ -359,16 +359,16 @@ const styles = StyleSheet.create({
     left: 0,
   },
   marqueeLogoFrame: {
-    width: 104,
-    height: 30,
+    width: 88,
+    height: 32,
     overflow: 'hidden',
     opacity: 0.42,
   },
   marqueeLogoImage: {
     width: 154,
-    height: 42,
-    marginLeft: -24,
-    marginTop: -5,
+    height: 46,
+    marginLeft: -32,
+    marginTop: -6,
   },
   hero: {
     backgroundColor: colors.accentLight,
