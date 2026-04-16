@@ -41,7 +41,7 @@ export default function HomeScreen() {
   const showingSuggestions = query.trim().length > 0;
   const androidAppUrl = ((Constants.expoConfig as any)?.extra?.androidAppUrl || '').trim();
   const marqueeOffset = useSharedValue(0);
-  const marqueeItemWidth = 138;
+  const marqueeItemWidth = 104;
   const marqueeRepeatCount = Math.max(6, Math.ceil(width / marqueeItemWidth) + 3);
   const marqueeTrackWidth = marqueeItemWidth * marqueeRepeatCount;
 
@@ -87,12 +87,14 @@ export default function HomeScreen() {
             <Image source={require('../../assets/images/duply-logo.png')} style={styles.brandLogoImage} contentFit="contain" />
           </View>
         </Pressable>
-        <Image
-          source={require('../../assets/images/duply-wordmark.png')}
-          style={styles.brandWordmark}
-          contentFit="contain"
-          accessibilityLabel={"d\u00fcply"}
-        />
+        <View style={styles.brandWordmarkFrame}>
+          <Image
+            source={require('../../assets/images/duply-wordmark.png')}
+            style={styles.brandWordmarkImage}
+            contentFit="contain"
+            accessibilityLabel={"d\u00fcply"}
+          />
+        </View>
         <Pressable onPress={() => router.push('/categories')} style={styles.menuBtn}>
           <Menu width={24} height={24} stroke={colors.primary} />
         </Pressable>
@@ -305,25 +307,36 @@ const styles = StyleSheet.create({
   brandLogoFrame: {
     width: 44,
     height: 44,
-    borderRadius: radius.md,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
+    borderColor: colors.cream,
+    backgroundColor: colors.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   brandLogoImage: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
   },
   brandLogoPressed: {
     opacity: 0.72,
     transform: [{ scale: 0.96 }],
   },
-  brandWordmark: {
+  brandWordmarkFrame: {
     flex: 1,
-    height: 78,
-    maxWidth: 284,
-    marginHorizontal: spacing.md,
+    height: 74,
+    maxWidth: 332,
+    marginHorizontal: spacing.sm,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandWordmarkImage: {
+    width: 356,
+    height: 108,
+    marginLeft: -20,
+    marginTop: -8,
   },
   scrollContent: {
     paddingBottom: spacing.xxxl,
@@ -346,16 +359,16 @@ const styles = StyleSheet.create({
     left: 0,
   },
   marqueeLogoFrame: {
-    width: 138,
-    height: 28,
+    width: 104,
+    height: 30,
     overflow: 'hidden',
-    opacity: 0.38,
+    opacity: 0.42,
   },
   marqueeLogoImage: {
-    width: 158,
-    height: 34,
-    marginLeft: -10,
-    marginTop: -3,
+    width: 154,
+    height: 42,
+    marginLeft: -24,
+    marginTop: -5,
   },
   hero: {
     backgroundColor: colors.accentLight,

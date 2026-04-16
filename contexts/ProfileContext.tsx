@@ -10,7 +10,7 @@ const STORAGE_KEY = '@duply_profile';
 const PROFILE_COLLECTION = 'profiles';
 
 export interface ProfilePreferences {
-  username: string;
+  displayName: string;
   photoUri: string;
 }
 
@@ -25,7 +25,7 @@ export interface ProfileContextValue {
 }
 
 const DEFAULT_PROFILE: ProfilePreferences = {
-  username: 'Beauty Lover',
+  displayName: 'Beauty Lover',
   photoUri: '',
 };
 
@@ -44,8 +44,9 @@ function profileStorageKey(uid?: string) {
 }
 
 function normalizeProfile(value: Partial<ProfilePreferences> | null | undefined, fallback: ProfilePreferences) {
+  const legacyUsername = (value as { username?: string } | null | undefined)?.username;
   return {
-    username: value?.username || fallback.username || DEFAULT_PROFILE.username,
+    displayName: value?.displayName || legacyUsername || fallback.displayName || DEFAULT_PROFILE.displayName,
     photoUri: value?.photoUri || fallback.photoUri || DEFAULT_PROFILE.photoUri,
   };
 }
@@ -99,9 +100,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const fallbackProfile = useMemo<ProfilePreferences>(() => ({
-    username: user?.displayName || DEFAULT_PROFILE.username,
-    photoUri: user?.photoURL || DEFAULT_PROFILE.photoUri,
-  }), [user?.displayName, user?.photoURL]);
+    displayName: user?.displayName || DEFAULT_PROFILE.displayName,
+    photoUri: DEFAULT_PROFILE.photoUri,
+  }), [user?.displayName]);
 
   const persist = useCallback(async (value: ProfilePreferences, uid?: string) => {
     try {
@@ -110,6 +111,28 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       // Local profile cache is best-effort.
     }
   }, []);
+
+  const saveRemoteProfile = useCallback(async (next: ProfilePreferences) => {
+    const uid = user?.uid;
+    const remoteDoc = uid ? profileDoc(uid) : null;
+    if (!uid || !remoteDoc) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      await setDoc(remoteDoc, {
+        displayName: next.displayName.trim() || DEFAULT_PROFILE.displayName,
+        username: next.displayName.trim() || DEFAULT_PROFILE.displayName,
+        photoUri: next.photoUri,
+        email: user.email || '',
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (err) {
+      setError(profileErrorMessage(err, 'Could not save your synced profile right now.'));
+    } finally {
+      setSaving(false);
+    }
+  }, [user?.email, user?.uid]);
 
   useEffect(() => {
     let unsubscribed = false;
@@ -148,6 +171,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
             : cachedProfile;
           setProfile(next);
           persist(next, uid);
+          if (!snapshot.exists()) {
+            saveRemoteProfile(next);
+          }
           setLoaded(true);
         },
         () => {
@@ -161,28 +187,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       unsubscribed = true;
       unsubscribeRemote?.();
     };
-  }, [fallbackProfile, persist, user?.uid]);
-
-  const saveRemoteProfile = useCallback(async (next: ProfilePreferences) => {
-    const uid = user?.uid;
-    const remoteDoc = uid ? profileDoc(uid) : null;
-    if (!uid || !remoteDoc) return;
-
-    setSaving(true);
-    setError(null);
-    try {
-      await setDoc(remoteDoc, {
-        username: next.username.trim() || DEFAULT_PROFILE.username,
-        photoUri: next.photoUri,
-        email: user.email || '',
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    } catch (err) {
-      setError(profileErrorMessage(err, 'Could not save your synced profile right now.'));
-    } finally {
-      setSaving(false);
-    }
-  }, [user?.email, user?.uid]);
+  }, [fallbackProfile, persist, saveRemoteProfile, user?.uid]);
 
   const updateProfile = useCallback((updates: Partial<ProfilePreferences>) => {
     setProfile(prev => {

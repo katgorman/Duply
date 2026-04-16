@@ -10,6 +10,18 @@ import { useAuth } from '../../hooks/useAuth';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useProfile } from '../../hooks/useProfile';
 
+function DefaultAvatar() {
+  return (
+    <View style={styles.defaultAvatarArt}>
+      <View style={styles.defaultAvatarHaloLarge} />
+      <View style={styles.defaultAvatarHaloSmall} />
+      <View style={styles.defaultAvatarBadge}>
+        <Image source={require('../../assets/images/duply-logo.png')} style={styles.defaultAvatarLogo} contentFit="contain" />
+      </View>
+    </View>
+  );
+}
+
 export default function ProfileScreen() {
   const auth = useAuth();
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
@@ -169,7 +181,7 @@ function ProfileContent() {
             {profile.photoUri ? (
               <Image source={{ uri: profile.photoUri }} style={styles.avatarImage} contentFit="cover" />
             ) : (
-              <User width={32} height={32} stroke={colors.primary} />
+              <DefaultAvatar />
             )}
           </Pressable>
           <Pressable onPress={pickProfilePhoto} style={styles.photoButton} disabled={saving}>
@@ -178,7 +190,7 @@ function ProfileContent() {
               {saving ? 'Saving...' : profile.photoUri ? 'Change Photo' : 'Upload Photo'}
             </Text>
           </Pressable>
-          <Text style={styles.name}>{profile.username || user?.displayName || 'Beauty Lover'}</Text>
+          <Text style={styles.name}>{profile.displayName || user?.displayName || 'Beauty Lover'}</Text>
           <Text style={styles.email}>{user?.email || 'Your beauty dupe dashboard'}</Text>
           <Pressable onPress={signOut} style={styles.signOutButton} disabled={authLoading}>
             <LogOut width={16} height={16} stroke={colors.primary} />
@@ -202,11 +214,11 @@ function ProfileContent() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Profile</Text>
           <View style={styles.card}>
-            <Text style={styles.fieldLabel}>Username</Text>
+            <Text style={styles.fieldLabel}>Display Name</Text>
             <TextInput
-              value={profile.username}
-              onChangeText={text => updateProfile({ username: text })}
-              placeholder="Add a username"
+              value={profile.displayName}
+              onChangeText={text => updateProfile({ displayName: text })}
+              placeholder="Add a display name"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
             />
@@ -292,16 +304,62 @@ const styles = StyleSheet.create({
     width: 78,
     height: 78,
     borderRadius: 39,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.softGold,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: colors.primary,
     ...shadows.md,
   },
   avatarImage: {
     width: '100%',
     height: '100%',
+  },
+  defaultAvatarArt: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.softGold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  defaultAvatarHaloLarge: {
+    position: 'absolute',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.pink,
+    opacity: 0.95,
+    top: 10,
+    left: 5,
+  },
+  defaultAvatarHaloSmall: {
+    position: 'absolute',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.accentLight,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    bottom: 6,
+    right: 6,
+  },
+  defaultAvatarBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    zIndex: 1,
+  },
+  defaultAvatarLogo: {
+    width: 40,
+    height: 40,
   },
   photoButton: {
     flexDirection: 'row',
