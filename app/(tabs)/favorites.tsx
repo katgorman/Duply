@@ -8,13 +8,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useFavorites } from '../../hooks/useFavorites';
 
+type SavedView = 'favorites' | 'comparisons';
+
 export default function FavoritesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ view?: string }>();
   const { favorites, loaded, removeFavorite, clearFavorites } = useFavorites();
   const productFavorites = favorites.filter(item => (item.kind || 'comparison') === 'product');
   const comparisonFavorites = favorites.filter(item => (item.kind || 'comparison') === 'comparison');
-  const [activeView, setActiveView] = useState<'favorites' | 'comparisons'>(
+  const [activeView, setActiveView] = useState<SavedView>(
     params.view === 'comparisons' ? 'comparisons' : 'favorites'
   );
 
@@ -43,50 +45,68 @@ export default function FavoritesScreen() {
         )}
       </View>
 
-      {!loaded ? null : favorites.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyState}>
-            <View style={styles.iconCircle}>
-              <Heart width={36} height={36} stroke={colors.accent} />
-            </View>
-            <Text style={styles.emptyTitle}>Nothing saved yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Save product pages, dupe comparisons, and price-match discoveries and they’ll live here.
-            </Text>
-            <Link href="/search" asChild>
-              <Pressable style={styles.button}>
-                <Text style={styles.buttonText}>Start Exploring</Text>
-              </Pressable>
-            </Link>
-          </View>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <View style={styles.chooserCard}>
+          <Text style={styles.chooserTitle}>Choose a saved view</Text>
+          <Text style={styles.chooserSubtitle}>Open your saved favorites or your saved dupe comparisons.</Text>
+
           <View style={styles.viewToggle}>
             <Pressable
               onPress={() => setActiveView('favorites')}
               style={[styles.viewToggleButton, activeView === 'favorites' && styles.viewToggleButtonActive]}
             >
               <Heart width={16} height={16} stroke={activeView === 'favorites' ? colors.textOnPrimary : colors.primary} />
-              <Text style={[styles.viewToggleText, activeView === 'favorites' && styles.viewToggleTextActive]}>Favorites</Text>
+              <View>
+                <Text style={[styles.viewToggleText, activeView === 'favorites' && styles.viewToggleTextActive]}>Favorites</Text>
+                <Text style={[styles.viewToggleMeta, activeView === 'favorites' && styles.viewToggleMetaActive]}>
+                  {productFavorites.length} saved
+                </Text>
+              </View>
             </Pressable>
             <Pressable
               onPress={() => setActiveView('comparisons')}
               style={[styles.viewToggleButton, activeView === 'comparisons' && styles.viewToggleButtonActive]}
             >
               <Star width={16} height={16} stroke={activeView === 'comparisons' ? colors.textOnPrimary : colors.primary} />
-              <Text style={[styles.viewToggleText, activeView === 'comparisons' && styles.viewToggleTextActive]}>Comparisons</Text>
+              <View>
+                <Text style={[styles.viewToggleText, activeView === 'comparisons' && styles.viewToggleTextActive]}>Comparisons</Text>
+                <Text style={[styles.viewToggleMeta, activeView === 'comparisons' && styles.viewToggleMetaActive]}>
+                  {comparisonFavorites.length} saved
+                </Text>
+              </View>
             </Pressable>
           </View>
+        </View>
 
+        {!loaded ? null : activeItems.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyState}>
+              <View style={styles.iconCircle}>
+                {activeView === 'favorites' ? (
+                  <Heart width={36} height={36} stroke={colors.accent} />
+                ) : (
+                  <Star width={36} height={36} stroke={colors.accent} />
+                )}
+              </View>
+              <Text style={styles.emptyTitle}>
+                {activeView === 'favorites' ? 'No favorites saved yet' : 'No comparisons saved yet'}
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                {activeView === 'favorites'
+                  ? 'Tap the heart on a product page to save it here.'
+                  : 'Tap the star on a dupe comparison page to save the full comparison here.'}
+              </Text>
+              <Link href="/search" asChild>
+                <Pressable style={styles.button}>
+                  <Text style={styles.buttonText}>Start Exploring</Text>
+                </Pressable>
+              </Link>
+            </View>
+          </View>
+        ) : (
           <SavedSection
             title={activeView === 'favorites' ? 'Favorites' : 'Saved Comparisons'}
             subtitle={`${activeItems.length} saved`}
-            emptyText={
-              activeView === 'favorites'
-                ? 'Tap the heart on a product page to save it here.'
-                : 'Tap the star on a dupe comparison page to save the full comparison here.'
-            }
             items={activeItems}
             removeFavorite={removeFavorite}
             onOpen={(item) =>
@@ -111,8 +131,8 @@ export default function FavoritesScreen() {
                   })
             }
           />
-        </ScrollView>
-      )}
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -120,14 +140,12 @@ export default function FavoritesScreen() {
 function SavedSection({
   title,
   subtitle,
-  emptyText,
   items,
   removeFavorite,
   onOpen,
 }: {
   title: string;
   subtitle: string;
-  emptyText: string;
   items: ReturnType<typeof useFavorites>['favorites'];
   removeFavorite: (id: string) => void;
   onOpen: (item: ReturnType<typeof useFavorites>['favorites'][number]) => void;
@@ -139,21 +157,15 @@ function SavedSection({
         <Text style={styles.sectionSubtitle}>{subtitle}</Text>
       </View>
 
-      {items.length === 0 ? (
-        <View style={styles.sectionEmptyCard}>
-          <Text style={styles.sectionEmptyText}>{emptyText}</Text>
-        </View>
-      ) : (
-        items.map((item, index) => (
-          <FavoriteCard
-            key={item.id}
-            item={item}
-            index={index}
-            onOpen={() => onOpen(item)}
-            onRemove={() => removeFavorite(item.id)}
-          />
-        ))
-      )}
+      {items.map((item, index) => (
+        <FavoriteCard
+          key={item.id}
+          item={item}
+          index={index}
+          onOpen={() => onOpen(item)}
+          onRemove={() => removeFavorite(item.id)}
+        />
+      ))}
     </View>
   );
 }
@@ -249,6 +261,63 @@ const styles = StyleSheet.create({
     ...typography.smallBold,
     color: colors.primary,
   },
+  list: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxxl,
+    flexGrow: 1,
+  },
+  chooserCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    marginBottom: spacing.lg,
+    ...shadows.sm,
+  },
+  chooserTitle: {
+    ...typography.bodyBold,
+    color: colors.primary,
+  },
+  chooserSubtitle: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    lineHeight: 20,
+  },
+  viewToggle: {
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  viewToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.accentLight,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  viewToggleButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  viewToggleText: {
+    ...typography.captionBold,
+    color: colors.primary,
+  },
+  viewToggleTextActive: {
+    color: colors.textOnPrimary,
+  },
+  viewToggleMeta: {
+    ...typography.small,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  viewToggleMetaActive: {
+    color: colors.textOnPrimary,
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -276,12 +345,13 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.primary,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   emptySubtitle: {
     ...typography.caption,
     color: colors.textMuted,
     textAlign: 'center',
-    maxWidth: 260,
+    maxWidth: 280,
     lineHeight: 20,
   },
   button: {
@@ -294,39 +364,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: colors.textOnPrimary,
     ...typography.captionBold,
-  },
-  list: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl,
-  },
-  viewToggle: {
-    flexDirection: 'row',
-    padding: 4,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderRadius: radius.full,
-    backgroundColor: colors.accentLight,
-    marginBottom: spacing.lg,
-    gap: spacing.xs,
-  },
-  viewToggleButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderRadius: radius.full,
-    paddingVertical: spacing.sm,
-  },
-  viewToggleButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  viewToggleText: {
-    ...typography.smallBold,
-    color: colors.primary,
-  },
-  viewToggleTextActive: {
-    color: colors.textOnPrimary,
   },
   section: {
     marginBottom: spacing.xl,
@@ -345,19 +382,6 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     ...typography.small,
     color: colors.textMuted,
-  },
-  sectionEmptyCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    ...shadows.sm,
-  },
-  sectionEmptyText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 20,
   },
   card: {
     flexDirection: 'row',
