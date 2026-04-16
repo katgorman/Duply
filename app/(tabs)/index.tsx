@@ -18,6 +18,7 @@ import { ProductCardSkeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useActivity } from '../../hooks/useActivity';
 import { useSearch } from '../../hooks/useProducts';
+import { seedProductCache } from '../../services/api';
 
 function MarqueeLogo() {
   return (
@@ -67,6 +68,10 @@ export default function HomeScreen() {
 
   const openProduct = (id: string, name: string) => {
     addRecentSearch(query);
+    const selected = results.find(item => item.id === id);
+    if (selected) {
+      seedProductCache(selected);
+    }
     router.push({
       pathname: '/searchResults',
       params: { productId: id, productName: name },

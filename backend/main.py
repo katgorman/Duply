@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -26,6 +27,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+RESPONSE_CACHE_TTL_SECONDS = 300
+_response_cache = {}
+
+
+def _cache_get(key):
+    entry = _response_cache.get(key)
+    if not entry:
+        return None
+
+    cached_at, value = entry
+    if time.time() - cached_at > RESPONSE_CACHE_TTL_SECONDS:
+        _response_cache.pop(key, None)
+        return None
+
+    return value
+
+
+def _cache_set(key, value):
+    _response_cache[key] = (time.time(), value)
+    return value
 
 
 def _normalize_number(value, default=0):
@@ -231,6 +253,11 @@ def health():
 
 @app.get("/products/search")
 def search_products(q: str):
+    cache_key = ("search", _normalize_text(q))
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     local_results = search_firestore_products(q, limit=20)
     include_web_results = _wants_new_products(q)
     web_results = search_web_products(q, limit=8) if include_web_results else []
@@ -248,11 +275,16 @@ def search_products(q: str):
         seen.add(key)
         combined.append(_product_from_record(product, fallback={"id": product.get("firestore_id", "")}))
 
-    return combined[:28]
+    return _cache_set(cache_key, combined[:28])
 
 
 @app.get("/products/category/{category_or_type}")
 def get_products_by_category(category_or_type: str, page: int = 1, page_size: int = 24, q: str = "", sort: str = "popular"):
+    cache_key = ("category", category_or_type, page, page_size, _normalize_text(q), sort)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     result = list_products_by_category(
         category_or_type,
         limit=page_size,
@@ -260,7 +292,7 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
         query=q,
         sort_by=sort,
     )
-    return {
+    return _cache_set(cache_key, {
         **result,
         "items": [
             _product_from_record(
@@ -270,11 +302,16 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
             )
             for index, product in enumerate(result["items"])
         ],
-    }
+    })
 
 
 @app.get("/categories")
 def get_categories():
+    cache_key = ("categories",)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     counts = category_counts()
     category_meta = [
         {"id": "eyes", "name": "Eyes", "emoji": "", "productType": "eyes", "color": "#FFF9F0"},
@@ -283,10 +320,10 @@ def get_categories():
         {"id": "skincare", "name": "Skincare", "emoji": "", "productType": "skincare", "color": "#FFF6F9"},
         {"id": "other", "name": "Other", "emoji": "", "productType": "other", "color": "#2A0B26"},
     ]
-    return [
+    return _cache_set(cache_key, [
         {**category, "count": counts.get(category["productType"], 0)}
         for category in category_meta
-    ]
+    ])
 
 
 def _legacy_category_products(category_or_type: str):
@@ -311,7 +348,12 @@ async def get_price_matches(request: Request):
         if not name:
             raise HTTPException(status_code=400, detail="Product name is required")
 
-        return find_price_matches(brand, name, limit=8)
+        cache_key = ("price_matches", _normalize_text(brand), _normalize_text(name))
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        return _cache_set(cache_key, find_price_matches(brand, name, limit=3))
     except HTTPException:
         raise
     except Exception as e:
@@ -321,24 +363,28 @@ async def get_price_matches(request: Request):
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):
+    cache_key = ("product", product_id)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     if product_id.startswith("web-"):
         product = get_web_product_by_id(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Web product expired from cache")
-        return _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True)
+        return _cache_set(cache_key, _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True))
 
     product = get_firestore_product_by_id(product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    return _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True)
+    return _cache_set(cache_key, _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True))
 
 
 @app.post("/dupes")
 async def get_dupes(request: Request):
     try:
         body = await request.json()
-        print("RAW request body:", body)
 
         # Only trust these fields from the frontend
         brand = body.get("brand", "")
@@ -347,6 +393,10 @@ async def get_dupes(request: Request):
         image = body.get("image", "") or ""
         category = body.get("category", "") or ""
         product_type = body.get("productType", "") or ""
+        cache_key = ("dupes", _normalize_text(brand), _normalize_text(name), _normalize_text(category), _normalize_text(product_type), _normalize_price(price))
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         query = f"{brand} {name}".strip()
 
@@ -433,9 +483,7 @@ async def get_dupes(request: Request):
                 "savings": savings,
             })
 
-        print("Returning dupes to frontend:", output)
-        return output
+        return _cache_set(cache_key, output)
 
     except Exception as e:
-        print("Error in /dupes:", str(e))
         raise HTTPException(status_code=500, detail=str(e))

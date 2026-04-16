@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import type { Dupe, Product } from '../services/api';
-import { dataService } from '../services/api';
+import { dataService, prefetchProductsById, seedProductCache } from '../services/api';
 
 export default function SearchResultsScreen() {
   const router = useRouter();
@@ -51,6 +51,19 @@ export default function SearchResultsScreen() {
   useEffect(() => {
     loadDupes();
   }, [loadDupes]);
+
+  useEffect(() => {
+    if (sourceProduct) {
+      seedProductCache(sourceProduct);
+    }
+    dupes.forEach(item => {
+      seedProductCache(item.original);
+      seedProductCache(item.dupe);
+    });
+    prefetchProductsById([
+      ...dupes.flatMap(item => [item.original.id, item.dupe.id]),
+    ]);
+  }, [dupes, sourceProduct]);
 
   const renderItem = ({ item, index }: { item: Dupe; index: number }) => (
     <Animated.View entering={FadeInRight.delay(index * 80).duration(400)}>

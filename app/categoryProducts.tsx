@@ -7,6 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { useProductsByCategory } from '../hooks/useProducts';
+import type { Product } from '../services/api';
+import { prefetchProductsById, seedProductCache } from '../services/api';
+
+const EMPTY_PRODUCTS: Product[] = [];
 
 type SortOption = 'az' | 'priceLow' | 'priceHigh' | 'popular';
 
@@ -29,7 +33,7 @@ export default function CategoryProductsScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
   const { data, loading, error } = useProductsByCategory(category, { page, pageSize, query, sort: sortBy });
-  const products = data?.items || [];
+  const products = data?.items || EMPTY_PRODUCTS;
   const totalProducts = data?.total || 0;
   const totalPages = data?.totalPages || 1;
 
@@ -43,7 +47,16 @@ export default function CategoryProductsScreen() {
     }
   }, [data?.totalPages, page]);
 
+  useEffect(() => {
+    products.slice(0, 8).forEach(seedProductCache);
+    prefetchProductsById(products.slice(0, 8).map(product => product.id));
+  }, [products]);
+
   const openProduct = (id: string, name: string) => {
+    const selected = products.find(item => item.id === id);
+    if (selected) {
+      seedProductCache(selected);
+    }
     router.push({
       pathname: '/productDetails',
       params: { id, productName: name },
