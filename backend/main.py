@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from firestore_products import (
     category_counts,
     fetch_firestore_product,
+    get_firestore_status,
     get_firestore_product_by_id,
     list_products_by_category,
     normalize_product_type,
@@ -21,6 +22,7 @@ from web_products import (
     augment_firestore_catalog_with_top_brands,
     find_price_matches,
     find_product_image,
+    get_dataforseo_status,
     is_approved_retailer_url,
     is_live_product_url,
     search_web_products,
@@ -612,6 +614,25 @@ def _search_products_with_fallback(q: str, local_limit: int, web_limit: int, max
 @app.get("/health")
 def health():
     return {"ok": True, **get_recommendation_status()}
+
+
+@app.get("/admin/status")
+def admin_status():
+    firestore_status = get_firestore_status()
+    dataforseo_status = get_dataforseo_status()
+
+    return {
+        "ok": True,
+        "timestamp": int(time.time()),
+        "model": get_recommendation_status(),
+        "firestore": firestore_status,
+        "dataforseo": dataforseo_status,
+        "augmentation": {
+            "ready": bool(firestore_status.get("available") and dataforseo_status.get("credentialsPresent")),
+            "augmentedCount": firestore_status.get("augmentedCount"),
+            "lastAugmentedAt": firestore_status.get("lastAugmentedAt"),
+        },
+    }
 
 
 @app.post("/admin/augment-top-brands")

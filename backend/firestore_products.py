@@ -861,3 +861,48 @@ def upsert_firestore_products(products):
     batch.commit()
     invalidate_catalog_cache()
     return {"written": written, "skipped": 0, "available": True}
+
+
+def get_firestore_status():
+    service_account_info = _service_account_from_env()
+    credentials_present = bool(
+        service_account_info
+        or os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+
+    status = {
+        "available": db is not None,
+        "credentialsPresent": credentials_present,
+        "collection": PRODUCTS_COLLECTION,
+        "catalogCount": None,
+        "augmentedCount": None,
+        "lastAugmentedAt": None,
+    }
+
+    if db is None:
+        return status
+
+    try:
+        docs = list(db.collection(PRODUCTS_COLLECTION).stream())
+        status["catalogCount"] = len(docs)
+
+        augmented_docs = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            if normalize_text(data.get("sourceProvider") or data.get("source")) == "dataforseo":
+                augmented_docs.append(data)
+
+        status["augmentedCount"] = len(augmented_docs)
+
+        timestamps = [
+            int(data.get("lastSeenAt") or 0)
+            for data in augmented_docs
+            if data.get("lastSeenAt") is not None
+        ]
+        if timestamps:
+            status["lastAugmentedAt"] = max(timestamps)
+    except Exception:
+        pass
+
+    return status

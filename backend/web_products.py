@@ -593,3 +593,16 @@ def augment_firestore_catalog_with_top_brands(brands=None, categories=None, per_
                 seen.add(key)
                 all_products.append(product)
     return {"brands": len(selected_brands), "categories": len(selected_categories), "productsFound": len(all_products), "firestore": upsert_firestore_products(all_products)}
+
+
+def get_dataforseo_status():
+    return {
+        "credentialsPresent": _has_dataforseo_credentials(),
+        "baseUrl": DATAFORSEO_BASE_URL,
+        "locationCode": DATAFORSEO_LOCATION_CODE,
+        "languageCode": DATAFORSEO_LANGUAGE_CODE,
+        "device": DATAFORSEO_DEVICE,
+        "os": DATAFORSEO_OS,
+        "topBrandCount": len(TOP_BRANDS),
+        "defaultAugmentCategoryCount": len(DEFAULT_AUGMENT_CATEGORIES),
+    }
