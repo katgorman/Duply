@@ -21,6 +21,7 @@ from firestore_products import (
     list_firestore_product_documents,
     list_products_by_category,
     normalize_catalog_price,
+    normalize_text,
     normalize_product_type,
     search_firestore_products,
     set_admin_job_state,
