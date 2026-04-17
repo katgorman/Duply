@@ -11,7 +11,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from firestore_products import build_catalog_product_id, normalize_product_type, normalize_text, upsert_firestore_products
+from firestore_products import (
+    build_catalog_product_id,
+    get_firestore_web_cache,
+    normalize_product_type,
+    normalize_text,
+    set_firestore_web_cache,
+    upsert_firestore_products,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
@@ -28,6 +35,7 @@ DATAFORSEO_POLL_INTERVAL_SECONDS = float(os.getenv("DATAFORSEO_POLL_INTERVAL_SEC
 SOURCE_IMAGE_LOOKUP_ENABLED = os.getenv("DUPLY_SOURCE_IMAGE_LOOKUP_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
 WEB_SEARCH_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_WEB_SEARCH_CACHE_TTL_SECONDS", "3600"))
 WEB_IMAGE_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_WEB_IMAGE_CACHE_TTL_SECONDS", "86400"))
+WEB_PRODUCT_INFO_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_WEB_PRODUCT_INFO_CACHE_TTL_SECONDS", "86400"))
 URL_STATUS_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_URL_STATUS_CACHE_TTL_SECONDS", "21600"))
 URL_CHECK_TIMEOUT_SECONDS = int(os.getenv("DUPLY_URL_CHECK_TIMEOUT_SECONDS", "5"))
 
@@ -117,6 +125,54 @@ def _cache_get(cache, key):
 
 def _cache_set(cache, key, value):
     cache[key] = (time.time(), value)
+
+
+def _restore_cached_products(products):
+    restored = []
+    for product in products or []:
+        if not isinstance(product, dict):
+            continue
+        normalized = {
+            **product,
+            "firestore_id": product.get("firestore_id") or product.get("id") or build_catalog_product_id(product),
+        }
+        _web_product_cache[normalized["firestore_id"]] = normalized
+        restored.append(normalized)
+    return restored
+
+
+def _load_persistent_cache(cache, cache_kind, cache_key, max_age_seconds=WEB_SEARCH_CACHE_TTL_SECONDS):
+    cached = _cache_get(cache, cache_key)
+    if cached is not None:
+        return cached
+
+    payload = get_firestore_web_cache(cache_kind, json.dumps(cache_key, sort_keys=True), max_age_seconds)
+    if payload is None:
+        return None
+
+    value = payload.get("items") if isinstance(payload, dict) and "items" in payload else payload
+    if cache_kind in {"web-search", "brand-catalog"}:
+        value = _restore_cached_products(value)
+    elif cache_kind == "price-match":
+        value = list(value or [])
+
+    _cache_set(cache, cache_key, value)
+    return value
+
+
+def _save_persistent_cache(cache, cache_kind, cache_key, value):
+    _cache_set(cache, cache_key, value)
+    payload = {"items": value} if cache_kind in {"web-search", "brand-catalog", "price-match"} else value
+    set_firestore_web_cache(cache_kind, json.dumps(cache_key, sort_keys=True), payload)
+
+
+def _upsert_cached_products(products):
+    if not products:
+        return
+    try:
+        upsert_firestore_products(products)
+    except Exception:
+        pass
 
 
 def _load_allowed_brands():
@@ -389,6 +445,10 @@ def _fetch_product_info(candidate):
     cached = _cache_get(_search_cache, key)
     if cached is not None:
         return cached
+    persistent = get_firestore_web_cache("product-info", identifier, WEB_PRODUCT_INFO_CACHE_TTL_SECONDS)
+    if persistent is not None:
+        _cache_set(_search_cache, key, persistent)
+        return persistent
     task = {**_task_defaults(), "product_id": identifier}
     data_docid = candidate.get("data_docid") or (raw or {}).get("data_docid")
     if data_docid:
@@ -400,6 +460,8 @@ def _fetch_product_info(candidate):
     except Exception:
         payload = {}
     _cache_set(_search_cache, key, payload)
+    if payload:
+        set_firestore_web_cache("product-info", identifier, payload)
     return payload
 
 
@@ -514,14 +576,14 @@ def search_web_products(query, limit=12):
     if not normalized_query or not _has_dataforseo_credentials():
         return []
     key = ("web-search", normalized_query, limit)
-    cached = _cache_get(_search_cache, key)
+    cached = _load_persistent_cache(_search_cache, "web-search", key)
     if cached is not None:
         return cached
     brand = _find_supported_brand(query)
     try:
         results = _search_products_task(query, max(limit * 2, 12))
     except Exception:
-        _cache_set(_search_cache, key, [])
+        _save_persistent_cache(_search_cache, "web-search", key, [])
         return []
     seen, normalized_products = set(), []
     for result in results:
@@ -540,9 +602,11 @@ def search_web_products(query, limit=12):
             seen.add(dedupe_key)
             normalized_products.append(product)
             if len(normalized_products) >= limit:
-                _cache_set(_search_cache, key, normalized_products)
+                _upsert_cached_products(normalized_products)
+                _save_persistent_cache(_search_cache, "web-search", key, normalized_products)
                 return normalized_products
-    _cache_set(_search_cache, key, normalized_products)
+    _upsert_cached_products(normalized_products)
+    _save_persistent_cache(_search_cache, "web-search", key, normalized_products)
     return normalized_products
 
 
@@ -553,13 +617,13 @@ def _search_brand_catalog(brand, category_or_type="", limit=12, enrich_product_i
     query_term = (search_term_override or "").strip() or CATEGORY_SEARCH_TERMS.get(normalize_product_type(category_or_type), category_or_type or "makeup")
     query = f"{display_brand} {query_term}".strip()
     key = ("brand-catalog", normalize_text(display_brand), normalize_product_type(category_or_type), normalize_text(query_term), limit, enrich_product_info)
-    cached = _cache_get(_search_cache, key)
+    cached = _load_persistent_cache(_search_cache, "brand-catalog", key)
     if cached is not None:
         return cached
     try:
         results = _search_products_task(query, max(limit * 3, 18))
     except Exception:
-        _cache_set(_search_cache, key, [])
+        _save_persistent_cache(_search_cache, "brand-catalog", key, [])
         return []
     seen, normalized_products = set(), []
     brand_key = _canonical_top_brand(display_brand) or normalize_text(display_brand)
@@ -587,9 +651,11 @@ def _search_brand_catalog(brand, category_or_type="", limit=12, enrich_product_i
             seen.add(dedupe_key)
             normalized_products.append(product)
             if len(normalized_products) >= limit:
-                _cache_set(_search_cache, key, normalized_products)
+                _upsert_cached_products(normalized_products)
+                _save_persistent_cache(_search_cache, "brand-catalog", key, normalized_products)
                 return normalized_products
-    _cache_set(_search_cache, key, normalized_products)
+    _upsert_cached_products(normalized_products)
+    _save_persistent_cache(_search_cache, "brand-catalog", key, normalized_products)
     return normalized_products
 
 
@@ -682,7 +748,7 @@ def find_price_matches(brand, product_name, product_url="", limit=8):
     if not product_name or not _has_dataforseo_credentials():
         return []
     key = ("price-match", normalize_text(brand), normalize_text(product_name), normalize_text(product_url), limit)
-    cached = _cache_get(_price_match_cache, key)
+    cached = _load_persistent_cache(_price_match_cache, "price-match", key)
     if cached is not None:
         return cached
     offers, seen = [], set()
@@ -757,8 +823,9 @@ def find_price_matches(brand, product_name, product_url="", limit=8):
         )
     )
 
-    _cache_set(_price_match_cache, key, deduped[:limit])
-    return deduped[:limit]
+    final_offers = deduped[:limit]
+    _save_persistent_cache(_price_match_cache, "price-match", key, final_offers)
+    return final_offers
 
 
 def _brand_seed_queries(brand, categories):

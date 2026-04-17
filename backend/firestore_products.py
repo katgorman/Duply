@@ -31,6 +31,15 @@ def _safe_float(value):
         return 0.0
 
 
+def _safe_int(value, default=0):
+    try:
+        if value is None or value == "":
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _init_firestore():
     if firebase_admin is None or credentials is None or firestore is None:
         return None
@@ -99,8 +108,10 @@ def _service_account_from_env():
 
 db = _init_firestore()
 PRODUCTS_COLLECTION = os.getenv("FIRESTORE_PRODUCTS_COLLECTION", "beauty_products")
+WEB_CACHE_COLLECTION = os.getenv("FIRESTORE_WEB_CACHE_COLLECTION", "web_query_cache")
 CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "900"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
+WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
 _search_cache = {}
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
 _metadata_products = None
@@ -197,12 +208,70 @@ def build_catalog_product_id(product):
     return f"prod-{_slugify(brand)}-{_slugify(name)}-{digest}"
 
 
+def build_web_cache_id(cache_kind, cache_key):
+    digest = hashlib.sha1(
+        f"{normalize_text(cache_kind)}|{normalize_text(cache_key)}".encode("utf-8")
+    ).hexdigest()
+    return f"cache-{digest}"
+
+
 def invalidate_catalog_cache():
     global _catalog_products, _catalog_products_by_id, _catalog_cache_loaded_at
     _catalog_products = None
     _catalog_products_by_id = None
     _catalog_cache_loaded_at = 0.0
     _search_cache.clear()
+
+
+def get_firestore_web_cache(cache_kind, cache_key, max_age_seconds=WEB_CACHE_TTL_SECONDS):
+    if db is None or not cache_kind or not cache_key:
+        return None
+
+    try:
+        doc = (
+            db.collection(WEB_CACHE_COLLECTION)
+            .document(build_web_cache_id(cache_kind, cache_key))
+            .get()
+        )
+    except Exception:
+        return None
+
+    if not doc.exists:
+        return None
+
+    data = doc.to_dict() or {}
+    cached_at = _safe_int(data.get("cachedAt"))
+    if cached_at <= 0:
+        return None
+
+    if max_age_seconds and (time.time() - cached_at) > max_age_seconds:
+        return None
+
+    return data.get("payload")
+
+
+def set_firestore_web_cache(cache_kind, cache_key, payload):
+    if db is None or not cache_kind or not cache_key:
+        return False
+
+    now = int(time.time())
+    record = {
+        "cacheKind": normalize_text(cache_kind),
+        "cacheKey": str(cache_key),
+        "payload": payload,
+        "cachedAt": now,
+        "updatedAt": now,
+    }
+
+    try:
+        (
+            db.collection(WEB_CACHE_COLLECTION)
+            .document(build_web_cache_id(cache_kind, cache_key))
+            .set(record, merge=True)
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _product_bucket(product):
@@ -875,6 +944,7 @@ def get_firestore_status():
         "available": db is not None,
         "credentialsPresent": credentials_present,
         "collection": PRODUCTS_COLLECTION,
+        "cacheCollection": WEB_CACHE_COLLECTION,
         "catalogCount": None,
         "augmentedCount": None,
         "lastAugmentedAt": None,
