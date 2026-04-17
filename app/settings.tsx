@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { ArrowLeft, Database, Search, Trash2 } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,11 +13,31 @@ export default function SettingsScreen() {
   const { recentSearches, recentViews, clearRecentSearches, clearRecentViews } = useActivity();
   const { favorites, clearFavorites } = useFavorites();
   const { showHigherPricedMatches, setShowHigherPricedMatches } = usePreferences();
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setSuccessMessage('');
+    }, 2600);
+
+    return () => clearTimeout(timeout);
+  }, [successMessage]);
+
+  const confirmAction = (title: string, message: string, successLabel: string, onConfirm: () => void) => {
     Alert.alert(title, message, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: onConfirm },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          onConfirm();
+          setSuccessMessage(successLabel);
+        },
+      },
     ]);
   };
 
@@ -38,6 +58,12 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {successMessage ? (
+          <View style={styles.successBanner}>
+            <Text style={styles.successText}>{successMessage}</Text>
+          </View>
+        ) : null}
+
         <Text style={styles.sectionLabel}>Matching</Text>
         <View style={styles.card}>
           <View style={styles.toggleRow}>
@@ -66,6 +92,7 @@ export default function SettingsScreen() {
             onPress={() => confirmAction(
               'Clear recently viewed?',
               'This removes all products from your recently viewed list.',
+              'Recently viewed cleared.',
               clearRecentViews,
             )}
           />
@@ -77,6 +104,7 @@ export default function SettingsScreen() {
             onPress={() => confirmAction(
               'Clear recent searches?',
               'This removes your recent search history on this device.',
+              'Recent searches cleared.',
               clearRecentSearches,
             )}
           />
@@ -88,6 +116,7 @@ export default function SettingsScreen() {
             onPress={() => confirmAction(
               'Clear favorites?',
               'This removes every saved favorite product.',
+              'Favorites cleared.',
               clearFavorites,
             )}
           />
@@ -100,6 +129,7 @@ export default function SettingsScreen() {
             onPress={() => confirmAction(
               'Clear all dupe data?',
               'This clears recently viewed, recent searches, and favorites all at once.',
+              'All dupe data cleared.',
               clearAllDupeData,
             )}
           />
@@ -165,6 +195,20 @@ const styles = StyleSheet.create({
   scroll: {
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+  },
+  successBanner: {
+    backgroundColor: colors.cream,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  successText: {
+    ...typography.captionBold,
+    color: colors.primary,
+    textAlign: 'center',
   },
   sectionLabel: {
     ...typography.captionBold,
