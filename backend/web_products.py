@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urljoin, urlencode
 from urllib.request import Request, urlopen
@@ -57,6 +58,111 @@ LIVE_PAGE_MARKERS = [
     "ratings",
 ]
 
+TOP_BRANDS = {
+    "l'oreal paris": "L'Oréal Paris",
+    "maybelline new york": "Maybelline New York",
+    "e.l.f. cosmetics": "e.l.f. Cosmetics",
+    "nyx professional makeup": "NYX Professional Makeup",
+    "revlon": "Revlon",
+    "covergirl": "CoverGirl",
+    "estee lauder": "Estée Lauder",
+    "mac cosmetics": "MAC Cosmetics",
+    "tarte cosmetics": "Tarte Cosmetics",
+    "nars cosmetics": "NARS Cosmetics",
+    "dior beauty": "Dior Beauty",
+    "chanel beauty": "Chanel Beauty",
+    "rare beauty": "Rare Beauty",
+    "fenty beauty": "Fenty Beauty",
+    "charlotte tilbury": "Charlotte Tilbury",
+    "glossier": "Glossier",
+    "rhode": "Rhode",
+    "sol de janeiro": "Sol de Janeiro",
+    "milk makeup": "Milk Makeup",
+}
+
+TOP_BRAND_ALIASES = {
+    "loreal paris": "l'oreal paris",
+    "l'oréal paris": "l'oreal paris",
+    "estée lauder": "estee lauder",
+    "mac": "mac cosmetics",
+    "nars": "nars cosmetics",
+    "tarte": "tarte cosmetics",
+    "dior": "dior beauty",
+    "chanel": "chanel beauty",
+    "elf cosmetics": "e.l.f. cosmetics",
+    "elf": "e.l.f. cosmetics",
+    "nyx": "nyx professional makeup",
+}
+
+APPROVED_RETAILER_DOMAINS = {
+    "ulta.com",
+    "sephora.com",
+    "target.com",
+    "walmart.com",
+    "cvs.com",
+    "walgreens.com",
+    "kohls.com",
+    "macys.com",
+    "nordstrom.com",
+    "beautylish.com",
+    "rarebeauty.com",
+    "fentybeauty.com",
+    "charlottetilbury.com",
+    "glossier.com",
+    "rhodeskin.com",
+    "soldejaneiro.com",
+    "milkmakeup.com",
+    "elfcosmetics.com",
+    "nyxcosmetics.com",
+    "revlon.com",
+    "covergirl.com",
+    "maybelline.com",
+    "lorealparisusa.com",
+    "esteelauder.com",
+    "maccosmetics.com",
+    "tartecosmetics.com",
+    "narscosmetics.com",
+    "dior.com",
+    "chanel.com",
+}
+
+BLOCKED_MARKETPLACE_DOMAINS = {
+    "ebay.com",
+    "mercari.com",
+    "poshmark.com",
+    "depop.com",
+    "amazon.com",
+    "amazon.co.uk",
+    "amazon.ca",
+    "amazon.in",
+}
+
+LIVE_AUGMENTATION_LIMIT_PER_BRAND = int(os.getenv("DUPLY_LIVE_LIMIT_PER_BRAND", "6"))
+LIVE_CATEGORY_MAX_BRANDS = int(os.getenv("DUPLY_LIVE_CATEGORY_MAX_BRANDS", "19"))
+
+CATEGORY_SEARCH_TERMS = {
+    "foundation": "foundation",
+    "concealer": "concealer",
+    "blush": "blush",
+    "bronzer": "bronzer",
+    "powder": "powder",
+    "primer": "primer",
+    "highlighter": "highlighter",
+    "lipstick": "lipstick",
+    "eyeshadow": "eyeshadow palette",
+    "eyeliner": "eyeliner",
+    "mascara": "mascara",
+    "eyebrow": "brow makeup",
+    "cleanser": "cleanser",
+    "moisturizer": "moisturizer",
+    "serum": "serum",
+    "sunscreen": "sunscreen",
+    "face": "makeup",
+    "lips": "lip makeup",
+    "eyes": "eye makeup",
+    "skincare": "skincare",
+}
+
 
 def _load_allowed_brands():
     global _allowed_brands
@@ -95,6 +201,48 @@ def _find_allowed_brand(text):
         pattern = f" {normalized_brand} "
         if pattern in normalized_text:
             matches.append((len(normalized_brand), display_brand))
+
+    if not matches:
+        return ""
+
+    matches.sort(reverse=True)
+    return matches[0][1]
+
+
+def _canonical_top_brand(value):
+    normalized = normalize_text(value)
+    if normalized in TOP_BRANDS:
+        return normalized
+    return TOP_BRAND_ALIASES.get(normalized, "")
+
+
+def _display_brand(value):
+    canonical = _canonical_top_brand(value)
+    if canonical:
+        return TOP_BRANDS[canonical]
+    return str(value or "").strip()
+
+
+def _all_allowed_brand_displays():
+    brands = dict(_load_allowed_brands())
+    for canonical, display_brand in TOP_BRANDS.items():
+        brands.setdefault(canonical, display_brand)
+    return brands
+
+
+def _find_supported_brand(text):
+    normalized_text = f" {normalize_text(text)} "
+    if not normalized_text.strip():
+        return ""
+
+    matches = []
+    for normalized_brand, display_brand in _all_allowed_brand_displays().items():
+        if f" {normalized_brand} " in normalized_text:
+            matches.append((len(normalized_brand), display_brand))
+
+    for alias, canonical in TOP_BRAND_ALIASES.items():
+        if f" {alias} " in normalized_text:
+            matches.append((len(alias), TOP_BRANDS[canonical]))
 
     if not matches:
         return ""
@@ -259,7 +407,7 @@ def _normalize_serpapi_item(item, fallback_brand):
         str(item.get("snippet") or ""),
         str(item.get("extensions") or ""),
     ])
-    brand = _find_allowed_brand(source_text) or fallback_brand
+    brand = _find_supported_brand(source_text) or _display_brand(fallback_brand)
 
     if not brand:
         return None
@@ -269,9 +417,11 @@ def _normalize_serpapi_item(item, fallback_brand):
 
     product_url = item.get("product_link") or item.get("link") or ""
     image = item.get("thumbnail") or item.get("serpapi_thumbnail") or ""
+    if not _is_approved_retailer_url(product_url):
+        return None
 
     normalized = {
-        "brand": brand,
+        "brand": _display_brand(brand),
         "product_name": title,
         "category": product_type,
         "subcategory": normalize_product_type(product_type),
@@ -321,6 +471,26 @@ def _source_domain(url):
     return match.group(1).lower() if match else ""
 
 
+def _is_blocked_marketplace_domain(domain):
+    domain = str(domain or "").lower()
+    return any(domain == blocked or domain.endswith(f".{blocked}") for blocked in BLOCKED_MARKETPLACE_DOMAINS)
+
+
+def _is_approved_retailer_domain(domain):
+    domain = str(domain or "").lower()
+    if not domain or _is_blocked_marketplace_domain(domain):
+        return False
+    return any(domain == approved or domain.endswith(f".{approved}") for approved in APPROVED_RETAILER_DOMAINS)
+
+
+def _is_approved_retailer_url(url):
+    return _is_approved_retailer_domain(_source_domain(url))
+
+
+def is_approved_retailer_url(url):
+    return _is_approved_retailer_url(url)
+
+
 def _offer_retailer(item):
     source = str(item.get("source") or item.get("seller") or item.get("merchant") or "").strip()
     if source:
@@ -364,6 +534,9 @@ def _normalize_offer(item, brand, product_name, index):
     confidence = _title_match_confidence(title, brand, product_name)
 
     if not title or not url or price <= 0 or confidence < 45:
+        return None
+
+    if not _is_approved_retailer_url(url):
         return None
 
     if not is_live_product_url(url):
@@ -526,24 +699,197 @@ def find_product_image(brand, product_name, product_url=""):
     return ""
 
 
+def _search_term_for_category(category_or_type):
+    normalized = normalize_product_type(category_or_type)
+    return CATEGORY_SEARCH_TERMS.get(normalized, category_or_type or "makeup")
+
+
+def _matches_search_target(product, category_or_type):
+    if not category_or_type:
+        return True
+
+    normalized_target = normalize_product_type(category_or_type)
+    product_type = normalize_product_type(product.get("subcategory") or product.get("type") or product.get("category"))
+    if normalized_target in {"face", "lips", "eyes", "skincare"}:
+        buckets = {
+            "face": {"foundation", "concealer", "blush", "bronzer", "powder", "primer", "highlighter"},
+            "lips": {"lipstick"},
+            "eyes": {"eyeshadow", "eyeliner", "mascara", "eyebrow"},
+            "skincare": {"cleanser", "moisturizer", "serum", "sunscreen"},
+        }
+        return product_type in buckets.get(normalized_target, set())
+
+    return not normalized_target or product_type == normalized_target
+
+
+def _brand_catalog_cache_key(brand, category_or_type, limit):
+    return ("brand-catalog", normalize_text(brand), normalize_product_type(category_or_type), limit)
+
+
+def _search_brand_catalog(brand, category_or_type="", limit=LIVE_AUGMENTATION_LIMIT_PER_BRAND):
+    display_brand = _display_brand(brand)
+    if not SERPAPI_API_KEY or not display_brand:
+        return []
+
+    cache_key = _brand_catalog_cache_key(display_brand, category_or_type, limit)
+    cached = _cache_get(_search_cache, cache_key)
+    if cached is not None:
+        return cached
+
+    search_term = _search_term_for_category(category_or_type)
+    query = f"{display_brand} {search_term}".strip()
+
+    try:
+        response = _serpapi_get({
+            "engine": "google_shopping",
+            "q": query,
+            "api_key": SERPAPI_API_KEY,
+            "num": str(max(limit * 3, 16)),
+        })
+    except Exception:
+        _cache_set(_search_cache, cache_key, [])
+        return []
+
+    items = response.get("shopping_results") or response.get("organic_results") or []
+    results = []
+    seen = set()
+    brand_key = _canonical_top_brand(display_brand) or normalize_text(display_brand)
+
+    for item in items:
+        product = _normalize_serpapi_item(item, display_brand)
+        if not product:
+            continue
+
+        product_brand_key = _canonical_top_brand(product.get("brand")) or normalize_text(product.get("brand"))
+        if brand_key and product_brand_key != brand_key:
+            continue
+        if not _matches_search_target(product, category_or_type):
+            continue
+
+        key = (
+            normalize_text(product.get("brand")),
+            normalize_text(product.get("product_name")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(product)
+        if len(results) >= limit:
+            break
+
+    _cache_set(_search_cache, cache_key, results)
+    return results
+
+
+def discover_live_category_products(category_or_type, limit=36):
+    normalized_target = normalize_product_type(category_or_type)
+    cache_key = ("live-category", normalized_target, limit)
+    cached = _cache_get(_search_cache, cache_key)
+    if cached is not None:
+        return cached
+
+    brands = list(TOP_BRANDS.values())[:LIVE_CATEGORY_MAX_BRANDS]
+    results = []
+    seen = set()
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_search_brand_catalog, brand, normalized_target, min(4, LIVE_AUGMENTATION_LIMIT_PER_BRAND)): brand
+            for brand in brands
+        }
+        for future in as_completed(futures):
+            try:
+                items = future.result()
+            except Exception:
+                continue
+            for product in items:
+                key = (
+                    normalize_text(product.get("brand")),
+                    normalize_text(product.get("product_name")),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(product)
+                if len(results) >= limit:
+                    _cache_set(_search_cache, cache_key, results[:limit])
+                    return results[:limit]
+
+    _cache_set(_search_cache, cache_key, results[:limit])
+    return results[:limit]
+
+
+def find_live_dupe_candidates(brand, product_name, product_type="", category="", price=0, limit=18):
+    display_brand = _display_brand(brand)
+    target_type = normalize_product_type(product_type or category)
+    if not SERPAPI_API_KEY or not target_type:
+        return []
+
+    cache_key = (
+        "live-dupes",
+        normalize_text(display_brand),
+        normalize_text(product_name),
+        target_type,
+        round(float(price or 0), 2),
+        limit,
+    )
+    cached = _cache_get(_search_cache, cache_key)
+    if cached is not None:
+        return cached
+
+    candidate_brands = [brand_name for brand_name in TOP_BRANDS.values() if normalize_text(brand_name) != normalize_text(display_brand)]
+    results = []
+    seen = set()
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_search_brand_catalog, candidate_brand, target_type, min(3, LIVE_AUGMENTATION_LIMIT_PER_BRAND)): candidate_brand
+            for candidate_brand in candidate_brands
+        }
+        for future in as_completed(futures):
+            try:
+                items = future.result()
+            except Exception:
+                continue
+            for product in items:
+                key = (
+                    normalize_text(product.get("brand")),
+                    normalize_text(product.get("product_name")),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                if normalize_text(product.get("brand")) == normalize_text(display_brand):
+                    continue
+                if price and _extract_price(product.get("price")) <= 0:
+                    continue
+                results.append(product)
+                if len(results) >= limit:
+                    _cache_set(_search_cache, cache_key, results[:limit])
+                    return results[:limit]
+
+    _cache_set(_search_cache, cache_key, results[:limit])
+    return results[:limit]
+
+
 def get_web_product_by_id(product_id):
     return _web_product_cache.get(product_id)
 
 
 def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
     normalized_query = normalize_text(query)
-    if not WEB_SEARCH_ENABLED or not SERPAPI_API_KEY or not normalized_query:
+    query_brand = _find_supported_brand(query)
+    if not SERPAPI_API_KEY or not normalized_query:
         return []
-
-    query_brand = _find_allowed_brand(query)
+    if not WEB_SEARCH_ENABLED and not query_brand:
+        return []
 
     cache_key = (normalized_query, limit)
     cached = _cache_get(_search_cache, cache_key)
     if cached is not None:
         return cached
 
-    year_terms = " OR ".join(WEB_SEARCH_YEARS)
-    search_query = f'{query} new makeup product {year_terms}'.strip()
+    search_query = f"{query} beauty".strip()
 
     try:
         response = _serpapi_get({
@@ -561,11 +907,17 @@ def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
     seen = set()
 
     for item in items:
-        product = _normalize_serpapi_item(item, query_brand)
+        product = _normalize_serpapi_item(item, query_brand or "")
         if not product:
             continue
 
-        if query_brand and normalize_text(product.get("brand")) != normalize_text(query_brand):
+        if query_brand:
+            query_brand_key = _canonical_top_brand(query_brand) or normalize_text(query_brand)
+            product_brand_key = _canonical_top_brand(product.get("brand")) or normalize_text(product.get("brand"))
+            if product_brand_key != query_brand_key:
+                continue
+
+        if not is_live_product_url(product.get("title-href")):
             continue
 
         key = (normalize_text(product.get("brand")), normalize_text(product.get("product_name")))

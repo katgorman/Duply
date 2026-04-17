@@ -17,9 +17,12 @@ from firestore_products import (
 )
 from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 from web_products import (
+    discover_live_category_products,
     find_price_matches,
     find_product_image,
+    find_live_dupe_candidates,
     get_web_product_by_id,
+    is_approved_retailer_url,
     is_live_product_url,
     search_web_products,
 )
@@ -80,11 +83,6 @@ def _normalize_text(value):
     if value is None:
         return ""
     return str(value).strip().lower()
-
-
-def _wants_new_products(query):
-    normalized = _normalize_text(query)
-    return any(token in normalized for token in ["2025", "2026", "new", "latest", "released", "launch"])
 
 
 def _build_comparison_profile(source):
@@ -252,8 +250,35 @@ def _is_product_available(product):
     product_url = product.get("productUrl") or ""
     if not product_url:
         return True
+    if not is_approved_retailer_url(product_url):
+        return False
 
     return is_live_product_url(product_url)
+
+
+def _candidate_key(record):
+    return (
+        _normalize_text(record.get("brand")),
+        _normalize_text(record.get("product_name") or record.get("name")),
+    )
+
+
+def _merge_ranked_candidates(*candidate_groups):
+    merged = []
+    seen = set()
+
+    for group in candidate_groups:
+        for item in group or []:
+            record = item.get("record", {})
+            key = _candidate_key(record)
+            if not key[0] and not key[1]:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+
+    return merged
 
 
 def _first_present(*values):
@@ -276,12 +301,11 @@ def search_products(q: str):
         return cached
 
     local_results = search_firestore_products(q, limit=20)
-    include_web_results = _wants_new_products(q)
-    web_results = search_web_products(q, limit=8) if include_web_results else []
+    web_results = search_web_products(q, limit=12)
 
     seen = set()
     combined = []
-    ordered_results = [*web_results, *local_results] if include_web_results else local_results
+    ordered_results = [*web_results, *local_results]
     for product in ordered_results:
         key = (
             _normalize_text(product.get("brand")),
@@ -312,6 +336,7 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
         query=q,
         sort_by=sort,
     )
+    live_results = discover_live_category_products(category_or_type, limit=max(page_size, 24)) if page == 1 and not q.strip() else []
     available_items = []
     for index, product in enumerate(result["items"]):
         normalized_product = _product_from_record(
@@ -323,9 +348,28 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
             continue
         available_items.append(normalized_product)
 
+    for product in live_results:
+        normalized_product = _product_from_record(
+            product,
+            fallback={"id": product.get("firestore_id", "")},
+            enrich_image=False,
+        )
+        if not _is_product_available(normalized_product):
+            continue
+        if any(
+            _normalize_text(existing.get("brand")) == _normalize_text(normalized_product.get("brand"))
+            and _normalize_text(existing.get("name")) == _normalize_text(normalized_product.get("name"))
+            for existing in available_items
+        ):
+            continue
+        available_items.append(normalized_product)
+        if len(available_items) >= page_size:
+            break
+
     return _cache_set(cache_key, {
         **result,
         "items": available_items,
+        "total": max(result.get("total", 0), len(available_items)),
     })
 
 
@@ -435,7 +479,19 @@ async def get_dupes(request: Request):
 
         # Let backend metadata be the source of truth
         matched_product = lookup_product(query, preferred_type=product_type)
-        results = find_dupes(query, preferred_type=product_type)
+        model_results = find_dupes(query, preferred_type=product_type)
+        live_results = [
+            {"record": candidate, "score": 0.0}
+            for candidate in find_live_dupe_candidates(
+                brand=brand,
+                product_name=name,
+                product_type=product_type,
+                category=category,
+                price=price,
+                limit=20,
+            )
+        ]
+        results = _merge_ranked_candidates(model_results, live_results)
         original_firestore = fetch_firestore_product({
             "brand": brand,
             "product_name": name,
@@ -488,7 +544,7 @@ async def get_dupes(request: Request):
 
         output = []
 
-        for i, item in enumerate(results):
+        for item in results:
             ranked_record = item.get("record", {})
             firestore_record = fetch_firestore_product(ranked_record)
             dupe_source = firestore_record or ranked_record
@@ -511,17 +567,27 @@ async def get_dupes(request: Request):
                 original_firestore or original,
                 firestore_record or dupe_source,
             )
+            if similarity < 45:
+                continue
 
             output.append({
-                "id": f"dupe-{i}",
+                "id": f"dupe-{len(output)}",
                 "original": original,
                 "dupe": dupe,
                 "similarity": similarity,
                 "matchReason": match_reason,
                 "savings": savings,
             })
-
-        return _cache_set(cache_key, output)
+        output.sort(
+            key=lambda item: (
+                -item["similarity"],
+                item["savings"] <= 0,
+                -item["savings"],
+                item["dupe"]["price"] <= 0,
+                item["dupe"]["price"],
+            )
+        )
+        return _cache_set(cache_key, output[:8])
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
