@@ -10,7 +10,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { Search, TrendingUp, User } from 'react-native-feather';
+import { Search, TrendingUp } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProductCard from '../../components/ProductCard';
 import { ProductCardSkeleton } from '../../components/SkeletonLoader';
@@ -98,14 +98,9 @@ export default function HomeScreen() {
             accessibilityLabel={"d\u00fcply"}
           />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open profile"
-          onPress={() => router.push('/profile')}
-          style={styles.menuBtn}
-        >
-          <User width={22} height={22} stroke={colors.primary} />
-        </Pressable>
+        <View style={styles.betaBadge}>
+          <Text style={styles.betaBadgeText}>Beta</Text>
+        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -308,6 +303,22 @@ const styles = StyleSheet.create({
   brandLogoPressed: {
     opacity: 0.72,
     transform: [{ scale: 0.96 }],
+  },
+  betaBadge: {
+    minWidth: 58,
+    height: 32,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.cream,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  betaBadgeText: {
+    ...typography.smallBold,
+    color: colors.primary,
+    textTransform: 'uppercase',
   },
   brandWordmarkFrame: {
     flex: 1,

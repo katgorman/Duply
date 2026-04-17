@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import React from 'react';
-import GlobalProfileShortcut from '../components/GlobalProfileShortcut';
 import AppInstallPrompt from '../components/AppInstallPrompt';
+import GlobalBetaBadge from '../components/GlobalBetaBadge';
 import { ActivityProvider } from '../contexts/ActivityContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import { FavoritesProvider } from '../contexts/FavoritesContext';
@@ -29,7 +29,7 @@ export default function RootLayout() {
               <Stack.Screen name="terms" />
               <Stack.Screen name="privacy" />
             </Stack>
-            <GlobalProfileShortcut />
+            <GlobalBetaBadge />
             <AppInstallPrompt />
           </FavoritesProvider>
         </ActivityProvider>
