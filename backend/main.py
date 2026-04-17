@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import time
 
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ from web_products import (
     is_approved_retailer_url,
     is_live_product_url,
     search_web_products,
+    title_match_confidence,
 )
 
 app = FastAPI()
@@ -329,11 +331,114 @@ def _is_product_available(product):
 
     product_url = product.get("productUrl") or ""
     if not product_url:
-        return True
+        return False
     if not is_approved_retailer_url(product_url):
         return False
 
     return is_live_product_url(product_url)
+
+
+def _meaningful_tokens(value):
+    stopwords = {
+        "the", "and", "for", "with", "new", "makeup", "product", "set", "mini",
+        "travel", "size", "pack", "shade", "color", "colour", "no", "spf",
+    }
+    tokens = re.findall(r"[a-z0-9]+", _normalize_text(value))
+    return [token for token in tokens if len(token) > 2 and token not in stopwords]
+
+
+def _live_match_score(candidate, brand, name, product_type="", category=""):
+    if not candidate:
+        return 0
+
+    candidate_brand = _normalize_text(candidate.get("brand"))
+    target_brand = _normalize_text(brand)
+    candidate_name = _normalize_text(candidate.get("name"))
+    target_type = normalize_product_type(product_type or category)
+    candidate_type = normalize_product_type(candidate.get("productType") or candidate.get("category"))
+
+    score = 0
+    if target_brand and candidate_brand == target_brand:
+        score += 40
+    elif target_brand and target_brand in candidate_brand:
+        score += 24
+
+    score += min(50, title_match_confidence(candidate_name, brand, name))
+
+    target_tokens = _meaningful_tokens(name)
+    if target_tokens:
+        matched = sum(1 for token in target_tokens[:8] if token in candidate_name)
+        score += round((matched / min(len(target_tokens), 8)) * 20)
+
+    if target_type and candidate_type == target_type:
+        score += 12
+
+    return score
+
+
+def _resolve_live_product(product):
+    if not product:
+        return None
+
+    if _is_product_available(product):
+        return product
+
+    brand = product.get("brand") or ""
+    name = product.get("name") or ""
+    product_type = product.get("productType") or ""
+    category = product.get("category") or ""
+    if not brand or not name:
+        return None
+
+    candidates = []
+    seen_candidates = set()
+    for query in [f"{brand} {name}".strip(), name.strip(), brand.strip()]:
+        normalized_query = _normalize_text(query)
+        if not normalized_query:
+            continue
+
+        for candidate in search_web_products(query, limit=10):
+            normalized_candidate = _finalize_product(
+                _product_from_record(candidate, fallback={"id": candidate.get("firestore_id", "")})
+            )
+            if not normalized_candidate or not _is_product_available(normalized_candidate):
+                continue
+
+            key = _product_identity_key(normalized_candidate)
+            if key in seen_candidates:
+                continue
+            seen_candidates.add(key)
+            candidates.append(normalized_candidate)
+
+    if not candidates:
+        return None
+
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            -_live_match_score(candidate, brand, name, product_type=product_type, category=category),
+            candidate.get("price", 0),
+        ),
+    )
+    best_candidate = ranked[0]
+    if _live_match_score(best_candidate, brand, name, product_type=product_type, category=category) < 65:
+        return None
+
+    return best_candidate
+
+
+def _coerce_to_live_product(record, fallback=None, enrich_image=False):
+    fallback = fallback or {"id": record.get("firestore_id", "")}
+    normalized_product = _finalize_product(
+        _product_from_record(record, fallback=fallback, enrich_image=enrich_image)
+    )
+    if not normalized_product:
+        return None
+
+    if _is_product_available(normalized_product):
+        return normalized_product
+
+    return _resolve_live_product(normalized_product)
 
 
 def _candidate_key(record):
@@ -394,8 +499,9 @@ def search_products(q: str):
         if key in seen:
             continue
         seen.add(key)
-        normalized_product = _finalize_product(
-            _product_from_record(product, fallback={"id": product.get("firestore_id", "")})
+        normalized_product = _coerce_to_live_product(
+            product,
+            fallback={"id": product.get("firestore_id", "")},
         )
         if not _is_product_available(normalized_product):
             continue
@@ -421,23 +527,21 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
     live_results = discover_live_category_products(category_or_type, limit=max(page_size, 24)) if page == 1 and not q.strip() else []
     available_items = []
     for index, product in enumerate(result["items"]):
-        normalized_product = _product_from_record(
+        normalized_product = _coerce_to_live_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
             enrich_image=index < 8,
         )
-        normalized_product = _finalize_product(normalized_product)
         if not _is_product_available(normalized_product):
             continue
         available_items.append(normalized_product)
 
     for product in live_results:
-        normalized_product = _product_from_record(
+        normalized_product = _coerce_to_live_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
             enrich_image=False,
         )
-        normalized_product = _finalize_product(normalized_product)
         if not _is_product_available(normalized_product):
             continue
         if any(
@@ -484,12 +588,11 @@ def _legacy_category_products(category_or_type: str):
     result = list_products_by_category(category_or_type, limit=24, page=1)
     available_items = []
     for index, product in enumerate(result["items"]):
-        normalized_product = _product_from_record(
+        normalized_product = _coerce_to_live_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
             enrich_image=index < 8,
         )
-        normalized_product = _finalize_product(normalized_product)
         if not _is_product_available(normalized_product):
             continue
         available_items.append(normalized_product)
@@ -530,8 +633,10 @@ def get_product(product_id: str):
         product = get_web_product_by_id(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Web product expired from cache")
-        normalized_product = _finalize_product(
-            _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True)
+        normalized_product = _coerce_to_live_product(
+            product,
+            fallback={"id": product.get("firestore_id", "")},
+            enrich_image=True,
         )
         if not _is_product_available(normalized_product):
             raise HTTPException(status_code=404, detail="Product is no longer available")
@@ -541,8 +646,10 @@ def get_product(product_id: str):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    normalized_product = _finalize_product(
-        _product_from_record(product, fallback={"id": product.get("firestore_id", "")}, enrich_image=True)
+    normalized_product = _coerce_to_live_product(
+        product,
+        fallback={"id": product.get("firestore_id", "")},
+        enrich_image=True,
     )
     if not _is_product_available(normalized_product):
         raise HTTPException(status_code=404, detail="Product is no longer available")
@@ -630,6 +737,7 @@ async def get_dupes(request: Request):
                 "skinType": "",
                 "raw": {},
             })
+        original = _resolve_live_product(original)
 
         if not original or not _is_product_available(original):
             raise HTTPException(status_code=404, detail="Product is no longer available")
@@ -649,6 +757,7 @@ async def get_dupes(request: Request):
                 enrich_image=True,
             )
             dupe = _finalize_product(dupe)
+            dupe = _resolve_live_product(dupe)
             if not dupe or not _is_product_available(dupe):
                 continue
             savings = max(original["price"] - dupe["price"], 0)

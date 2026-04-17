@@ -531,6 +531,10 @@ def _title_match_confidence(title, brand, product_name):
     return round((token_score * 75) + brand_bonus)
 
 
+def title_match_confidence(title, brand, product_name):
+    return _title_match_confidence(title, brand, product_name)
+
+
 def _normalize_offer(item, brand, product_name, index):
     title = str(item.get("title") or "").strip()
     url = item.get("product_link") or item.get("link") or ""
@@ -893,6 +897,13 @@ def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
     if cached is not None:
         return cached
 
+    brand_only_query = bool(query_brand and normalized_query == normalize_text(query_brand))
+    if brand_only_query:
+        brand_catalog_results = _search_brand_catalog(query_brand, "", limit=limit)
+        if brand_catalog_results:
+            _cache_set(_search_cache, cache_key, brand_catalog_results[:limit])
+            return brand_catalog_results[:limit]
+
     search_query = f"{query} beauty".strip()
 
     try:
@@ -978,6 +989,40 @@ def find_price_matches(brand, product_name, limit=8):
             continue
         seen.add(dedupe_key)
         offers.append(offer)
+
+    if not offers:
+        fallback_products = search_web_products(query, limit=max(limit * 3, 8))
+        for index, product in enumerate(fallback_products):
+            title = product.get("product_name") or ""
+            url = product.get("title-href") or product.get("raw", {}).get("productUrl") or ""
+            price = _extract_price(product.get("price"))
+            confidence = _title_match_confidence(title, brand, product_name)
+
+            if not title or not url or price <= 0 or confidence < 45:
+                continue
+
+            offer = {
+                "id": f"fallback-offer-{index}-{hashlib.sha1(f'{title}|{url}'.encode('utf-8')).hexdigest()[:10]}",
+                "retailer": product.get("website") or _offer_retailer({"link": url}),
+                "title": title,
+                "price": price,
+                "url": url,
+                "image": product.get("image") or "",
+                "shipping": "",
+                "source": product.get("source") or "web",
+                "matchConfidence": confidence,
+                "rank": index,
+            }
+
+            dedupe_key = (
+                normalize_text(offer["retailer"]),
+                normalize_text(offer["title"]),
+                round(offer["price"], 2),
+            )
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            offers.append(offer)
 
     offers.sort(key=lambda offer: (offer["price"], -offer["matchConfidence"], offer["rank"]))
     normalized_offers = [{key: value for key, value in offer.items() if key != "rank"} for offer in offers[:limit]]
