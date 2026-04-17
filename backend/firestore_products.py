@@ -133,6 +133,7 @@ def _service_account_from_env():
 db = _init_firestore()
 PRODUCTS_COLLECTION = os.getenv("FIRESTORE_PRODUCTS_COLLECTION", "beauty_products")
 WEB_CACHE_COLLECTION = os.getenv("FIRESTORE_WEB_CACHE_COLLECTION", "web_query_cache")
+ADMIN_JOB_CACHE_KIND = "admin-job-state"
 CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "900"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
 WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
@@ -306,6 +307,14 @@ def set_firestore_web_cache(cache_kind, cache_key, payload):
         return True
     except Exception:
         return False
+
+
+def get_admin_job_state(job_id):
+    return get_firestore_web_cache(ADMIN_JOB_CACHE_KIND, str(job_id or "").strip(), 0)
+
+
+def set_admin_job_state(job_id, payload):
+    return set_firestore_web_cache(ADMIN_JOB_CACHE_KIND, str(job_id or "").strip(), payload)
 
 
 def _product_bucket(product):

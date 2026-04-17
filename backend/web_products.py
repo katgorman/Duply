@@ -1256,6 +1256,60 @@ def augment_firestore_catalog_with_top_brands(brands=None, categories=None, per_
     }
 
 
+def augment_firestore_catalog_with_top_brands_slice(
+    brands=None,
+    categories=None,
+    per_query_limit=12,
+    start_query_index=0,
+    max_queries=10,
+):
+    selected_brands = brands or list(TOP_BRANDS.values())
+    selected_categories = categories or DEFAULT_AUGMENT_CATEGORIES
+    planned_queries = []
+
+    for brand in selected_brands:
+        for _, category, query_term in _brand_seed_queries(brand, selected_categories):
+            planned_queries.append({
+                "brand": brand,
+                "category": category,
+                "queryTerm": query_term,
+            })
+
+    safe_start = max(0, int(start_query_index or 0))
+    safe_max_queries = max(1, int(max_queries or 1))
+    scoped_queries = planned_queries[safe_start:safe_start + safe_max_queries]
+
+    all_products = []
+    seen = set()
+    for planned_query in scoped_queries:
+        for product in _search_brand_catalog(
+            planned_query["brand"],
+            planned_query["category"],
+            per_query_limit,
+            True,
+            search_term_override=planned_query["queryTerm"],
+        ):
+            key = build_catalog_dedupe_key(product)
+            if key in seen:
+                continue
+            seen.add(key)
+            all_products.append(product)
+
+    next_query_index = safe_start + len(scoped_queries)
+    return {
+        "brands": len(selected_brands),
+        "categories": len(selected_categories),
+        "queriesRun": len(scoped_queries),
+        "totalQueries": len(planned_queries),
+        "startQueryIndex": safe_start,
+        "nextQueryIndex": next_query_index,
+        "finished": next_query_index >= len(planned_queries),
+        "productsFound": len(all_products),
+        "queries": scoped_queries,
+        "firestore": upsert_firestore_products(all_products),
+    }
+
+
 def get_dataforseo_status():
     return {
         "credentialsPresent": _has_dataforseo_credentials(),

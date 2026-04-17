@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,7 @@ from firestore_products import (
     category_counts,
     delete_firestore_products,
     fetch_firestore_product,
+    get_admin_job_state,
     get_firestore_status,
     get_firestore_product_by_id,
     list_firestore_product_documents,
@@ -21,12 +23,14 @@ from firestore_products import (
     normalize_catalog_price,
     normalize_product_type,
     search_firestore_products,
+    set_admin_job_state,
     upsert_firestore_products,
 )
 from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 from web_products import (
     augment_official_us_retailers,
     augment_firestore_catalog_with_top_brands,
+    augment_firestore_catalog_with_top_brands_slice,
     find_price_matches,
     find_product_image,
     get_dataforseo_status,
@@ -47,6 +51,8 @@ app.add_middleware(
 )
 
 RESPONSE_CACHE_TTL_SECONDS = 300
+ADMIN_JOB_DEFAULT_MAX_STEPS = 1
+ADMIN_JOB_MAX_STEPS_LIMIT = 25
 _response_cache = {}
 
 
@@ -1206,6 +1212,287 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
     }
 
 
+def _job_now():
+    return int(time.time())
+
+
+def _normalize_job_kind(kind):
+    return _normalize_text(kind).replace("_", "-")
+
+
+def _build_admin_job_id(kind, config):
+    payload = f"{kind}|{repr(config)}|{int(time.time() * 1000)}"
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+    return f"job-{_normalize_job_kind(kind)}-{digest}"
+
+
+def _cleanup_job_config(body):
+    return {
+        "batchSize": max(1, min(int(body.get("batchSize") or body.get("maxDocs") or 50), 200)),
+        "validateImages": bool(body.get("validateImages", True)),
+    }
+
+
+def _augment_us_retailers_job_config(body):
+    retailers = body.get("retailers") or None
+    return {
+        "retailers": retailers,
+        "batchSizePerRetailer": max(1, min(int(body.get("batchSizePerRetailer") or body.get("maxUrlsPerRetailer") or 25), 100)),
+    }
+
+
+def _augment_top_brands_job_config(body):
+    return {
+        "brands": body.get("brands") or None,
+        "categories": body.get("categories") or None,
+        "perQueryLimit": max(1, min(int(body.get("perQueryLimit") or 25), 100)),
+        "queriesPerStep": max(1, min(int(body.get("queriesPerStep") or body.get("maxQueries") or 5), 20)),
+    }
+
+
+def _create_admin_job_state(kind, config):
+    now = _job_now()
+    normalized_kind = _normalize_job_kind(kind)
+    state = {
+        "jobId": _build_admin_job_id(normalized_kind, config),
+        "kind": normalized_kind,
+        "status": "queued",
+        "createdAt": now,
+        "updatedAt": now,
+        "startedAt": None,
+        "completedAt": None,
+        "error": "",
+        "config": config,
+        "cursor": {},
+        "progress": {
+            "stepsRun": 0,
+        },
+        "lastResult": None,
+    }
+
+    if normalized_kind == "cleanup-catalog":
+        state["cursor"] = {"startAfterId": "", "previousCursor": "", "repeatCount": 0}
+        state["progress"].update({
+            "scanned": 0,
+            "deleted": 0,
+            "rewritten": 0,
+            "duplicatesRemoved": 0,
+            "invalidRemoved": 0,
+            "groupsMerged": 0,
+        })
+    elif normalized_kind == "augment-us-retailers":
+        state["cursor"] = {"retailerIndex": 0, "startIndex": 0}
+        state["progress"].update({
+            "productsFound": 0,
+            "written": 0,
+            "retailersCompleted": 0,
+            "retailerSummaries": {},
+        })
+    elif normalized_kind == "augment-top-brands":
+        state["cursor"] = {"startQueryIndex": 0}
+        state["progress"].update({
+            "queriesRun": 0,
+            "productsFound": 0,
+            "written": 0,
+            "totalQueries": 0,
+        })
+    else:
+        raise ValueError(f"Unsupported job kind: {kind}")
+
+    return state
+
+
+def _save_admin_job_state(state):
+    state["updatedAt"] = _job_now()
+    set_admin_job_state(state["jobId"], state)
+    return state
+
+
+def _load_admin_job_state(job_id):
+    state = get_admin_job_state(job_id)
+    if not state:
+        return None
+    return state
+
+
+def _step_cleanup_job(state):
+    cursor = state.get("cursor", {})
+    config = state.get("config", {})
+    result = cleanup_firestore_catalog(
+        max_docs=config.get("batchSize") or 50,
+        start_after_id=cursor.get("startAfterId") or "",
+        validate_images=bool(config.get("validateImages", True)),
+    )
+
+    progress = state["progress"]
+    progress["stepsRun"] += 1
+    progress["scanned"] += int(result.get("scanned") or 0)
+    progress["deleted"] += int(result.get("deleted") or 0)
+    progress["rewritten"] += int(result.get("rewritten") or 0)
+    progress["duplicatesRemoved"] += int(result.get("duplicatesRemoved") or 0)
+    progress["invalidRemoved"] += int(result.get("invalidRemoved") or 0)
+    progress["groupsMerged"] += int(result.get("groupsMerged") or 0)
+
+    next_cursor = str(result.get("nextStartAfterId") or "").strip()
+    current_cursor = str(cursor.get("startAfterId") or "").strip()
+    previous_cursor = str(cursor.get("previousCursor") or "").strip()
+
+    if result.get("finished") or not next_cursor:
+        state["status"] = "completed"
+        state["completedAt"] = _job_now()
+    elif next_cursor == current_cursor or next_cursor == previous_cursor:
+        repeat_count = int(cursor.get("repeatCount") or 0) + 1
+        state["cursor"] = {
+            "startAfterId": current_cursor,
+            "previousCursor": previous_cursor,
+            "repeatCount": repeat_count,
+        }
+        state["status"] = "failed"
+        state["error"] = "Cleanup cursor repeated; job paused to avoid looping."
+    else:
+        state["status"] = "running"
+        state["cursor"] = {
+            "startAfterId": next_cursor,
+            "previousCursor": current_cursor,
+            "repeatCount": 0,
+        }
+
+    state["lastResult"] = result
+    return state
+
+
+def _step_augment_us_retailers_job(state):
+    config = state.get("config", {})
+    cursor = state.get("cursor", {})
+    selected_retailers = config.get("retailers") or ["sephora", "ulta"]
+    retailer_index = max(0, int(cursor.get("retailerIndex") or 0))
+    start_index = max(0, int(cursor.get("startIndex") or 0))
+
+    if retailer_index >= len(selected_retailers):
+        state["status"] = "completed"
+        state["completedAt"] = _job_now()
+        state["lastResult"] = {
+            "finished": True,
+            "retailerIndex": retailer_index,
+            "startIndex": start_index,
+        }
+        return state
+
+    retailer = selected_retailers[retailer_index]
+    result = augment_official_us_retailers(
+        retailers=[retailer],
+        max_urls_per_retailer=config.get("batchSizePerRetailer") or 25,
+        start_index=start_index,
+    )
+
+    progress = state["progress"]
+    progress["stepsRun"] += 1
+    progress["productsFound"] += int(result.get("productsFound") or 0)
+    progress["written"] += int((result.get("firestore") or {}).get("written") or 0)
+    retailer_summary = ((result.get("retailers") or [{}])[0] if result.get("retailers") else {})
+    progress["retailerSummaries"][retailer] = retailer_summary
+
+    urls_discovered = int(retailer_summary.get("urlsDiscovered") or 0)
+    urls_processed = int(retailer_summary.get("urlsProcessed") or 0)
+    next_start_index = int(retailer_summary.get("nextStartIndex") or (start_index + urls_processed))
+    retailer_complete = urls_processed <= 0 or (urls_discovered > 0 and next_start_index >= urls_discovered)
+
+    if retailer_complete:
+        retailer_index += 1
+        start_index = 0
+        progress["retailersCompleted"] = max(progress.get("retailersCompleted", 0), retailer_index)
+    else:
+        start_index = next_start_index
+
+    if retailer_index >= len(selected_retailers):
+        state["status"] = "completed"
+        state["completedAt"] = _job_now()
+    else:
+        state["status"] = "running"
+    state["cursor"] = {
+        "retailerIndex": retailer_index,
+        "startIndex": start_index,
+    }
+    state["lastResult"] = result
+    return state
+
+
+def _step_augment_top_brands_job(state):
+    config = state.get("config", {})
+    cursor = state.get("cursor", {})
+    result = augment_firestore_catalog_with_top_brands_slice(
+        brands=config.get("brands"),
+        categories=config.get("categories"),
+        per_query_limit=config.get("perQueryLimit") or 25,
+        start_query_index=cursor.get("startQueryIndex") or 0,
+        max_queries=config.get("queriesPerStep") or 5,
+    )
+
+    progress = state["progress"]
+    progress["stepsRun"] += 1
+    progress["queriesRun"] += int(result.get("queriesRun") or 0)
+    progress["productsFound"] += int(result.get("productsFound") or 0)
+    progress["written"] += int((result.get("firestore") or {}).get("written") or 0)
+    progress["totalQueries"] = int(result.get("totalQueries") or progress.get("totalQueries") or 0)
+
+    if result.get("finished"):
+        state["status"] = "completed"
+        state["completedAt"] = _job_now()
+    else:
+        next_query_index = int(result.get("nextQueryIndex") or 0)
+        current_query_index = int(cursor.get("startQueryIndex") or 0)
+        if next_query_index <= current_query_index:
+            state["status"] = "failed"
+            state["error"] = "Top-brand augmentation query cursor did not advance."
+        else:
+            state["status"] = "running"
+            state["cursor"] = {"startQueryIndex": next_query_index}
+
+    state["lastResult"] = result
+    return state
+
+
+def _run_admin_job_step(state):
+    kind = _normalize_job_kind(state.get("kind"))
+    if kind == "cleanup-catalog":
+        return _step_cleanup_job(state)
+    if kind == "augment-us-retailers":
+        return _step_augment_us_retailers_job(state)
+    if kind == "augment-top-brands":
+        return _step_augment_top_brands_job(state)
+    raise ValueError(f"Unsupported job kind: {kind}")
+
+
+def run_admin_job(job_id, max_steps=ADMIN_JOB_DEFAULT_MAX_STEPS):
+    state = _load_admin_job_state(job_id)
+    if not state:
+        raise KeyError(job_id)
+
+    safe_max_steps = max(1, min(int(max_steps or ADMIN_JOB_DEFAULT_MAX_STEPS), ADMIN_JOB_MAX_STEPS_LIMIT))
+    if state.get("status") == "completed":
+        return state
+    if state.get("status") == "failed":
+        return state
+
+    if not state.get("startedAt"):
+        state["startedAt"] = _job_now()
+
+    for _ in range(safe_max_steps):
+        state["status"] = "running"
+        state["error"] = ""
+        try:
+            state = _run_admin_job_step(state)
+        except Exception as exc:
+            state["status"] = "failed"
+            state["error"] = str(exc)
+            state["lastResult"] = None
+        _save_admin_job_state(state)
+        if state.get("status") in {"completed", "failed"}:
+            break
+
+    return state
+
+
 @app.get("/health")
 def health():
     return {"ok": True, **get_recommendation_status()}
@@ -1230,6 +1517,60 @@ def admin_status():
     }
 
 
+@app.post("/admin/jobs")
+async def create_admin_job(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    kind = _normalize_job_kind(body.get("kind") or "")
+    if kind == "cleanup-catalog":
+        config = _cleanup_job_config(body)
+    elif kind == "augment-us-retailers":
+        config = _augment_us_retailers_job_config(body)
+    elif kind == "augment-top-brands":
+        config = _augment_top_brands_job_config(body)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported job kind")
+
+    state = _create_admin_job_state(kind, config)
+    _save_admin_job_state(state)
+
+    max_steps = int(body.get("maxSteps") or 0)
+    if max_steps > 0:
+        state = run_admin_job(state["jobId"], max_steps=max_steps)
+
+    return state
+
+
+@app.get("/admin/jobs/{job_id}")
+def get_admin_job(job_id: str):
+    state = _load_admin_job_state(job_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return state
+
+
+@app.post("/admin/jobs/{job_id}/run")
+async def run_existing_admin_job(job_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    state = _load_admin_job_state(job_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        return run_admin_job(job_id, max_steps=body.get("maxSteps") or ADMIN_JOB_DEFAULT_MAX_STEPS)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/admin/augment-top-brands")
 async def augment_top_brands(request: Request):
     try:
@@ -1240,8 +1581,18 @@ async def augment_top_brands(request: Request):
     brands = body.get("brands") or None
     categories = body.get("categories") or None
     per_query_limit = max(1, min(int(body.get("perQueryLimit") or 40), 100))
+    start_query_index = max(0, int(body.get("startQueryIndex") or 0))
+    max_queries = max(1, min(int(body.get("maxQueries") or 0), 25)) if body.get("maxQueries") is not None else 0
 
     try:
+        if max_queries:
+            return augment_firestore_catalog_with_top_brands_slice(
+                brands=brands,
+                categories=categories,
+                per_query_limit=per_query_limit,
+                start_query_index=start_query_index,
+                max_queries=max_queries,
+            )
         result = augment_firestore_catalog_with_top_brands(
             brands=brands,
             categories=categories,
