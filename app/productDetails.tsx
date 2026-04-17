@@ -12,6 +12,18 @@ import { useFavorites } from '../hooks/useFavorites';
 import type { PriceOffer, Product } from '../services/api';
 import { dataService } from '../services/api';
 
+function toTitleCase(value?: string) {
+  if (!value) {
+    return '';
+  }
+
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 export default function ProductDetailsScreen() {
   const router = useRouter();
   const { addRecentView } = useActivity();
@@ -208,23 +220,35 @@ export default function ProductDetailsScreen() {
     }
   };
 
+  const actualSavings = isComparisonView && dupeProduct
+    ? Math.max(original.price - dupeProduct.price, 0)
+    : Math.max(savingsAmount, 0);
   const savingsPercent = original.price > 0
-    ? Math.round((savingsAmount / original.price) * 100)
+    ? Math.round((actualSavings / original.price) * 100)
     : 0;
   const matchReasonParts = matchReason
     ? matchReason.split(',').map(part => part.trim()).filter(Boolean)
     : [];
-  const productFacts = [
-    { label: 'Category', value: original.category },
-    { label: 'Product Type', value: original.productType },
+  const primaryProductFacts = [
+    { label: 'Brand', value: original.brand },
     { label: 'Ingredients', value: original.mainIngredient },
     { label: 'Skin Type', value: original.skinType },
     { label: 'Packaging', value: original.packagingType },
     { label: 'Size', value: original.productSize },
+    { label: 'Release Year', value: original.releaseYear ? String(original.releaseYear) : '' },
     { label: 'Country', value: original.countryOfOrigin },
-    { label: 'Gender Target', value: original.genderTarget },
-    { label: 'Cruelty Free', value: original.crueltyFree },
+    { label: 'Cruelty Free', value: toTitleCase(original.crueltyFree) },
     { label: 'Reviews', value: original.numberOfReviews ? String(original.numberOfReviews) : '' },
+    { label: 'Source', value: original.source ? toTitleCase(original.source) : '' },
+  ].filter(item => item.value);
+  const fallbackProductFacts = [
+    { label: 'Category', value: toTitleCase(original.category) },
+    { label: 'Product Type', value: toTitleCase(original.productType) },
+    { label: 'Gender Target', value: toTitleCase(original.genderTarget) },
+  ].filter(item => item.value);
+  const productFacts = [
+    ...primaryProductFacts,
+    ...(primaryProductFacts.length < 4 ? fallbackProductFacts : []),
   ].filter(item => item.value);
   const displayRating = isComparisonView ? (dupeProduct?.rating || original.rating) : original.rating;
   const hasRating = displayRating > 0;
@@ -281,13 +305,13 @@ export default function ProductDetailsScreen() {
           </Animated.View>
         )}
 
-        {isComparisonView && savingsAmount > 0 && (
+        {isComparisonView && actualSavings > 0 && (
           <Animated.View entering={FadeInDown.delay(100).duration(400)}>
             <View style={styles.savingsRow}>
               <View style={styles.savingsBadge}>
                 <Feather name="check-circle" size={18} color={colors.success} />
                 <View>
-                  <Text style={styles.savingsAmountText}>Save ${savingsAmount.toFixed(2)}</Text>
+                  <Text style={styles.savingsAmountText}>Save ${actualSavings.toFixed(2)}</Text>
                   <Text style={styles.savingsPercent}>{savingsPercent}% less</Text>
                 </View>
               </View>

@@ -138,7 +138,9 @@ export default function SearchResultsScreen() {
         <View style={styles.priceCol}>
           <Text style={styles.dupePrice}>${item.dupe.price.toFixed(2)}</Text>
           <Text style={styles.origPrice}>${item.original.price.toFixed(2)}</Text>
-          <Text style={styles.savingsText}>Save ${item.savings.toFixed(2)}</Text>
+          {Math.max(item.original.price - item.dupe.price, 0) > 0 ? (
+            <Text style={styles.savingsText}>Save ${Math.max(item.original.price - item.dupe.price, 0).toFixed(2)}</Text>
+          ) : null}
         </View>
       </TouchableOpacity>
     </Animated.View>
