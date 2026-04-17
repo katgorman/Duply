@@ -15,6 +15,7 @@ export interface ActivityContextValue {
   clearRecentSearches: () => void;
   addRecentView: (product: Product) => void;
   removeRecentView: (productId: string) => void;
+  clearRecentViews: () => void;
 }
 
 export const ActivityContext = createContext<ActivityContextValue>({
@@ -26,6 +27,7 @@ export const ActivityContext = createContext<ActivityContextValue>({
   clearRecentSearches: () => {},
   addRecentView: () => {},
   removeRecentView: () => {},
+  clearRecentViews: () => {},
 });
 
 export function ActivityProvider({ children }: { children: React.ReactNode }) {
@@ -131,6 +133,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistViews]);
 
+  const clearRecentViews = useCallback(() => {
+    setRecentViews(() => {
+      persistViews([]);
+      return [];
+    });
+  }, [persistViews]);
+
   return (
     <ActivityContext.Provider
       value={{
@@ -142,6 +151,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         clearRecentSearches,
         addRecentView,
         removeRecentView,
+        clearRecentViews,
       }}
     >
       {children}

@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
+import { usePreferences } from '../hooks/usePreferences';
 import type { Dupe, Product } from '../services/api';
 import { dataService, prefetchProductsById, seedProductCache } from '../services/api';
 
@@ -51,6 +52,7 @@ export default function SearchResultsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceProduct, setSourceProduct] = useState<Product | null>(null);
+  const { showHigherPricedMatches } = usePreferences();
 
   const loadDupes = useCallback(async () => {
     setLoading(true);
@@ -73,13 +75,19 @@ export default function SearchResultsScreen() {
 
       setSourceProduct(product);
       const foundDupes = await dataService.findDupes(product);
-      setDupes(foundDupes);
+      setDupes(
+        foundDupes.filter(item => (
+          showHigherPricedMatches
+            ? true
+            : item.dupe.price <= item.original.price
+        ))
+      );
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [params.productId, params.q]);
+  }, [params.productId, params.q, showHigherPricedMatches]);
 
   useEffect(() => {
     loadDupes();

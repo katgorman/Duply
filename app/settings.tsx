@@ -1,14 +1,31 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { ArrowLeft, Bell, Database, Search, User } from 'react-native-feather';
+import React from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ArrowLeft, Database, Search, Trash2 } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, spacing, typography } from '../constants/theme';
+import { useActivity } from '../hooks/useActivity';
+import { useFavorites } from '../hooks/useFavorites';
+import { usePreferences } from '../hooks/usePreferences';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [instantSearchEnabled, setInstantSearchEnabled] = useState(true);
+  const { recentSearches, recentViews, clearRecentSearches, clearRecentViews } = useActivity();
+  const { favorites, clearFavorites } = useFavorites();
+  const { showHigherPricedMatches, setShowHigherPricedMatches } = usePreferences();
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: onConfirm },
+    ]);
+  };
+
+  const clearAllDupeData = () => {
+    clearRecentViews();
+    clearRecentSearches();
+    clearFavorites();
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -17,63 +34,74 @@ export default function SettingsScreen() {
           <ArrowLeft width={24} height={24} stroke={colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 40 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionLabel}>Experience</Text>
+        <Text style={styles.sectionLabel}>Matching</Text>
         <View style={styles.card}>
           <View style={styles.toggleRow}>
             <View style={styles.toggleLeft}>
-              <Bell width={20} height={20} stroke={colors.textMuted} />
-              <View>
-                <Text style={styles.toggleLabel}>Notifications</Text>
-                <Text style={styles.toggleHelp}>Saved for future app reminders and product updates</Text>
-              </View>
-            </View>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: colors.border, true: colors.accentLight }}
-              thumbColor={notificationsEnabled ? colors.primary : colors.textMuted}
-            />
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleLeft}>
               <Search width={20} height={20} stroke={colors.textMuted} />
-              <View>
-                <Text style={styles.toggleLabel}>Instant Search Suggestions</Text>
-                <Text style={styles.toggleHelp}>Show matching database products while typing</Text>
+              <View style={styles.textBlock}>
+                <Text style={styles.toggleLabel}>Show matches at higher price points than the original query</Text>
+                <Text style={styles.toggleHelp}>Turn this on to include strong matches even when they cost more.</Text>
               </View>
             </View>
             <Switch
-              value={instantSearchEnabled}
-              onValueChange={setInstantSearchEnabled}
+              value={showHigherPricedMatches}
+              onValueChange={setShowHigherPricedMatches}
               trackColor={{ false: colors.border, true: colors.accentLight }}
-              thumbColor={instantSearchEnabled ? colors.primary : colors.textMuted}
+              thumbColor={showHigherPricedMatches ? colors.primary : colors.textMuted}
             />
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>Current Setup</Text>
+        <Text style={styles.sectionLabel}>Data</Text>
         <View style={styles.card}>
-          <InfoRow
+          <ActionRow
             icon={Database}
-            title="Product Source"
-            value="Bundled product catalog with optional cloud sync"
+            label="Clear recently viewed"
+            detail={`${recentViews.length} item${recentViews.length === 1 ? '' : 's'}`}
+            onPress={() => confirmAction(
+              'Clear recently viewed?',
+              'This removes all products from your recently viewed list.',
+              clearRecentViews,
+            )}
           />
           <View style={styles.divider} />
-          <InfoRow
+          <ActionRow
             icon={Search}
-            title="Dupe Engine"
-            value="FastAPI backend with model-ranked dupes and live price-match retrieval"
+            label="Clear recent searches"
+            detail={`${recentSearches.length} search${recentSearches.length === 1 ? '' : 'es'}`}
+            onPress={() => confirmAction(
+              'Clear recent searches?',
+              'This removes your recent search history on this device.',
+              clearRecentSearches,
+            )}
           />
           <View style={styles.divider} />
-          <InfoRow
-            icon={User}
-            title="Saved Items"
-            value="Favorite product pages saved on this device"
+          <ActionRow
+            icon={Trash2}
+            label="Clear favorites"
+            detail={`${favorites.length} favorite${favorites.length === 1 ? '' : 's'}`}
+            onPress={() => confirmAction(
+              'Clear favorites?',
+              'This removes every saved favorite product.',
+              clearFavorites,
+            )}
+          />
+          <View style={styles.divider} />
+          <ActionRow
+            icon={Trash2}
+            label="Clear all dupe data"
+            detail="Clears recently viewed, recent searches, and favorites"
+            danger
+            onPress={() => confirmAction(
+              'Clear all dupe data?',
+              'This clears recently viewed, recent searches, and favorites all at once.',
+              clearAllDupeData,
+            )}
           />
         </View>
       </ScrollView>
@@ -81,15 +109,29 @@ export default function SettingsScreen() {
   );
 }
 
-function InfoRow({ icon: Icon, title, value }: { icon: React.FC<any>; title: string; value: string }) {
+function ActionRow({
+  icon: Icon,
+  label,
+  detail,
+  onPress,
+  danger = false,
+}: {
+  icon: React.FC<any>;
+  label: string;
+  detail: string;
+  onPress: () => void;
+  danger?: boolean;
+}) {
   return (
-    <View style={styles.infoRow}>
-      <Icon width={20} height={20} stroke={colors.textMuted} />
-      <View style={styles.infoContent}>
-        <Text style={styles.infoTitle}>{title}</Text>
-        <Text style={styles.infoValue}>{value}</Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}>
+      <View style={styles.actionLeft}>
+        <Icon width={20} height={20} stroke={danger ? colors.error : colors.textMuted} />
+        <View style={styles.textBlock}>
+          <Text style={[styles.actionLabel, danger && styles.dangerText]}>{label}</Text>
+          <Text style={styles.actionDetail}>{detail}</Text>
+        </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -116,6 +158,9 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.primary,
     textTransform: 'uppercase',
+  },
+  headerSpacer: {
+    width: 40,
   },
   scroll: {
     padding: spacing.lg,
@@ -153,6 +198,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     flex: 1,
   },
+  textBlock: {
+    flex: 1,
+  },
   toggleLabel: {
     ...typography.caption,
     color: colors.text,
@@ -162,22 +210,27 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 2,
   },
-  infoRow: {
+  actionRow: {
+    padding: spacing.lg,
+  },
+  actionRowPressed: {
+    opacity: 0.8,
+  },
+  actionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    padding: spacing.lg,
   },
-  infoContent: {
-    flex: 1,
-  },
-  infoTitle: {
-    ...typography.small,
-    color: colors.textMuted,
-  },
-  infoValue: {
+  actionLabel: {
     ...typography.caption,
     color: colors.text,
+  },
+  actionDetail: {
+    ...typography.small,
+    color: colors.textMuted,
     marginTop: 2,
+  },
+  dangerText: {
+    color: colors.error,
   },
 });
