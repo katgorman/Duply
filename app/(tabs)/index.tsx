@@ -1,8 +1,7 @@
-import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   FadeInDown,
@@ -12,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Menu, Search, TrendingUp } from 'react-native-feather';
+import SearchFlowLoader from '../../components/SearchFlowLoader';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProductCard from '../../components/ProductCard';
 import { ProductCardSkeleton } from '../../components/SkeletonLoader';
@@ -40,7 +40,6 @@ export default function HomeScreen() {
   const { results, loading: searchLoading, error: searchError, search } = useSearch();
   const { recentViews, loaded: activityLoaded, addRecentSearch } = useActivity();
   const showingSuggestions = query.trim().length > 0;
-  const androidAppUrl = ((Constants.expoConfig as any)?.extra?.androidAppUrl || '').trim();
   const marqueeOffset = useSharedValue(0);
   const marqueeItemWidth = 72;
   const marqueeRepeatCount = Math.max(6, Math.ceil(width / marqueeItemWidth) + 3);
@@ -152,18 +151,17 @@ export default function HomeScreen() {
                   returnKeyType="search"
                   style={styles.searchInput}
                 />
-                {searchLoading ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
-                ) : null}
               </View>
 
               {showingSuggestions ? (
                 <View style={styles.suggestionsPanel}>
                   {searchLoading ? (
                     <View style={styles.suggestionsLoading}>
-                      {[1, 2, 3].map(i => (
-                        <View key={i} style={styles.suggestionSkeleton} />
-                      ))}
+                      <SearchFlowLoader
+                        compact
+                        title="Following the search through the model"
+                        subtitle="Resolving the item, matching it, and checking live shopping pages."
+                      />
                     </View>
                   ) : searchError ? (
                     <View style={styles.suggestionsState}>
@@ -212,23 +210,6 @@ export default function HomeScreen() {
             </Text>
           </View>
         </View>
-
-        {Platform.OS === 'web' ? (
-          <View style={styles.section}>
-            <View style={styles.installCard}>
-              <Text style={styles.installTitle}>On iPhone, add düply to your home screen</Text>
-              <Text style={styles.installBody}>
-                Open this page in Safari, tap Share, then choose Add to Home Screen. Android users can use the browser
-                version too, or install the full app if you share an Android build link.
-              </Text>
-              {androidAppUrl ? (
-                <Pressable onPress={() => Linking.openURL(androidAppUrl)} style={styles.installButton}>
-                  <Text style={styles.installButtonText}>Install Android App</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
 
         <Animated.View entering={FadeInDown.delay(500).duration(500)} style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -458,11 +439,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  suggestionSkeleton: {
-    height: 54,
-    borderRadius: radius.lg,
-    backgroundColor: colors.skeleton,
-  },
   suggestionsList: {
     maxHeight: 320,
   },
@@ -562,37 +538,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   emptyActivityButtonText: {
-    ...typography.captionBold,
-    color: colors.textOnPrimary,
-  },
-  installCard: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.xl,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    ...shadows.sm,
-  },
-  installTitle: {
-    ...typography.bodyBold,
-    color: colors.primary,
-  },
-  installBody: {
-    ...typography.caption,
-    color: colors.text,
-    marginTop: spacing.sm,
-    lineHeight: 20,
-  },
-  installButton: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  installButtonText: {
     ...typography.captionBold,
     color: colors.textOnPrimary,
   },

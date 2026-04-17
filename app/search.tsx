@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ArrowLeft, Clock, Search, X } from 'react-native-feather';
+import SearchFlowLoader from '../components/SearchFlowLoader';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { useActivity } from '../hooks/useActivity';
@@ -71,9 +72,11 @@ export default function SearchScreen() {
 
         {loading ? (
           <View style={styles.suggestionsLoading}>
-            {[1, 2, 3].map(i => (
-              <View key={i} style={styles.resultSkeleton} />
-            ))}
+            <SearchFlowLoader
+              compact
+              title="Following the search through the model"
+              subtitle="Reading the query, checking the catalog, and validating live product pages."
+            />
           </View>
         ) : error ? (
           <View style={styles.suggestionsState}>
@@ -133,13 +136,6 @@ export default function SearchScreen() {
             autoFocus
             returnKeyType="search"
           />
-          {loading ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.accent}
-              style={styles.spinner}
-            />
-          ) : null}
         </View>
 
         {renderSuggestions()}
@@ -215,10 +211,6 @@ const styles = StyleSheet.create({
     left: spacing.md,
     zIndex: 1,
   },
-  spinner: {
-    position: 'absolute',
-    right: spacing.md,
-  },
   input: {
     paddingVertical: spacing.lg,
     paddingLeft: 40,
@@ -259,11 +251,6 @@ const styles = StyleSheet.create({
   suggestionsLoading: {
     padding: spacing.md,
     gap: spacing.sm,
-  },
-  resultSkeleton: {
-    height: 54,
-    borderRadius: radius.lg,
-    backgroundColor: colors.skeleton,
   },
   suggestionsList: {
     maxHeight: 320,
