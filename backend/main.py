@@ -441,6 +441,18 @@ def _coerce_to_live_product(record, fallback=None, enrich_image=False):
     return _resolve_live_product(normalized_product)
 
 
+def _directly_available_product(record, fallback=None, enrich_image=False):
+    fallback = fallback or {"id": record.get("firestore_id", "")}
+    normalized_product = _finalize_product(
+        _product_from_record(record, fallback=fallback, enrich_image=enrich_image)
+    )
+    if not normalized_product:
+        return None
+    if not _is_product_available(normalized_product):
+        return None
+    return normalized_product
+
+
 def _candidate_key(record):
     return (
         _normalize_text(record.get("brand")),
@@ -490,8 +502,9 @@ def search_products(q: str):
 
     seen = set()
     combined = []
-    ordered_results = [*web_results, *local_results]
-    for product in ordered_results:
+
+    # Web search results are already filtered to live products, so prefer them for fast suggestions.
+    for product in web_results:
         key = (
             _normalize_text(product.get("brand")),
             _normalize_text(product.get("product_name")),
@@ -499,13 +512,34 @@ def search_products(q: str):
         if key in seen:
             continue
         seen.add(key)
-        normalized_product = _coerce_to_live_product(
+        normalized_product = _finalize_product(
+            _product_from_record(product, fallback={"id": product.get("firestore_id", "")})
+        )
+        if not normalized_product:
+            continue
+        combined.append(normalized_product)
+        if len(combined) >= 12:
+            return _cache_set(cache_key, _dedupe_products(combined)[:28])
+
+    # For local catalog matches, only keep directly available products here.
+    # Deep live-resolution is reserved for the selected-product flow to keep search responsive.
+    for product in local_results[:10]:
+        key = (
+            _normalize_text(product.get("brand")),
+            _normalize_text(product.get("product_name")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_product = _directly_available_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
         )
-        if not _is_product_available(normalized_product):
+        if not normalized_product:
             continue
         combined.append(normalized_product)
+        if len(combined) >= 12:
+            break
 
     return _cache_set(cache_key, _dedupe_products(combined)[:28])
 

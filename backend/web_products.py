@@ -918,10 +918,8 @@ def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
         return []
 
     items = response.get("shopping_results") or response.get("organic_results") or []
-    results = []
-    seen = set()
-
-    for item in items:
+    candidates = []
+    for index, item in enumerate(items):
         product = _normalize_serpapi_item(item, query_brand or "")
         if not product:
             continue
@@ -932,9 +930,28 @@ def search_web_products(query, limit=WEB_SEARCH_MAX_RESULTS):
             if product_brand_key != query_brand_key:
                 continue
 
-        if not is_live_product_url(product.get("title-href")):
-            continue
+        candidates.append((index, product))
 
+    live_candidates = []
+    if candidates:
+        with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as executor:
+            futures = {
+                executor.submit(is_live_product_url, product.get("title-href")): (index, product)
+                for index, product in candidates
+            }
+            for future in as_completed(futures):
+                index, product = futures[future]
+                try:
+                    if future.result():
+                        live_candidates.append((index, product))
+                except Exception:
+                    continue
+
+    live_candidates.sort(key=lambda item: item[0])
+
+    results = []
+    seen = set()
+    for _, product in live_candidates:
         key = (normalize_text(product.get("brand")), normalize_text(product.get("product_name")))
         if key in seen:
             continue

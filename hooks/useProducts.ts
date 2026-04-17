@@ -125,19 +125,14 @@ export function useSearch() {
         if (requestId !== requestIdRef.current) return;
 
         if (data.length === 0 && isLikelyBrandQuery(trimmedQuery)) {
-          const fallbackResults: Product[] = [];
+          const fallbackQueries = SEARCH_FALLBACK_SUFFIXES.map(suffix => `${trimmedQuery} ${suffix}`);
+          const fallbackGroups = await Promise.all(
+            fallbackQueries.map(fallbackQuery => dataService.searchProducts(fallbackQuery).catch(() => []))
+          );
 
-          for (const suffix of SEARCH_FALLBACK_SUFFIXES) {
-            const fallbackQuery = `${trimmedQuery} ${suffix}`;
-            const fallbackData = await dataService.searchProducts(fallbackQuery);
-            if (requestId !== requestIdRef.current) return;
-            fallbackResults.push(...fallbackData);
-            if (fallbackResults.length >= 8) {
-              break;
-            }
-          }
+          if (requestId !== requestIdRef.current) return;
 
-          data = dedupeProducts(fallbackResults).slice(0, 8);
+          data = dedupeProducts(fallbackGroups.flat()).slice(0, 8);
         }
 
         data.slice(0, 4).forEach(seedProductCache);
