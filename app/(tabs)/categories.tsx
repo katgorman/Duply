@@ -19,7 +19,7 @@ export default function CategoriesScreen() {
 
   useEffect(() => {
     FALLBACK_CATEGORIES.forEach(category => {
-      void prefetchCategoryPage(category.productType);
+      void prefetchCategoryPage(category.productType, { page: 1, pageSize: 12, sort: 'popular' });
     });
   }, []);
 

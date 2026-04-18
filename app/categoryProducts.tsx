@@ -11,9 +11,10 @@ import type { Product } from '../services/api';
 import { dataService, prefetchProductsById, seedProductCache } from '../services/api';
 
 const EMPTY_PRODUCTS: Product[] = [];
-const DEFAULT_PAGE_SIZE = 18;
+const DEFAULT_PAGE_SIZE = 12;
 
 type SortOption = 'az' | 'priceLow' | 'priceHigh' | 'popular';
+type ViewMode = 'list' | 'grid';
 
 const sortOptions: { id: SortOption; label: string }[] = [
   { id: 'az', label: 'A-Z' },
@@ -29,6 +30,7 @@ export default function CategoryProductsScreen() {
   const title = params.title || 'Category';
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('popular');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [page, setPage] = useState(1);
   const pageSize = DEFAULT_PAGE_SIZE;
   const { data, loading, error } = useProductsByCategory(category, { page, pageSize, query, sort: sortBy });
@@ -146,6 +148,30 @@ export default function CategoryProductsScreen() {
         </ScrollView>
       </View>
 
+      <View style={styles.viewModeBlock}>
+        <Text style={styles.viewModeLabel}>View</Text>
+        <View style={styles.viewModeOptions}>
+          {(['list', 'grid'] as ViewMode[]).map(mode => {
+            const active = viewMode === mode;
+            return (
+              <Pressable
+                key={mode}
+                onPress={() => setViewMode(mode)}
+                style={({ pressed }) => [
+                  styles.viewModeChip,
+                  active && styles.viewModeChipActive,
+                  pressed && styles.sortChipPressed,
+                ]}
+              >
+                <Text style={[styles.viewModeChipText, active && styles.viewModeChipTextActive]}>
+                  {mode === 'list' ? 'List' : 'Grid'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       {isInitialLoading ? (
         <View style={styles.loadingWrap}>
           {[1, 2, 3, 4].map(i => (
@@ -165,9 +191,12 @@ export default function CategoryProductsScreen() {
       ) : (
         <>
           <FlatList
+            key={`category-products-${viewMode}`}
             data={products}
+            numColumns={viewMode === 'grid' ? 2 : 1}
             keyExtractor={item => item.id}
-            contentContainerStyle={styles.list}
+            contentContainerStyle={[styles.list, viewMode === 'grid' && styles.gridList]}
+            columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={
               isRefreshingResults ? (
@@ -178,20 +207,28 @@ export default function CategoryProductsScreen() {
             }
             renderItem={({ item }) => (
               <Pressable
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                style={({ pressed }) => [
+                  styles.card,
+                  viewMode === 'grid' ? styles.cardGrid : styles.cardList,
+                  pressed && styles.cardPressed,
+                ]}
                 onPress={() => openProduct(item.id, item.name)}
               >
                 {item.image ? (
-                  <Image source={{ uri: item.image }} style={styles.image} contentFit="cover" />
+                  <Image
+                    source={{ uri: item.image }}
+                    style={[styles.image, viewMode === 'grid' && styles.imageGrid]}
+                    contentFit="cover"
+                  />
                 ) : (
-                  <View style={[styles.image, styles.imagePlaceholder]}>
+                  <View style={[styles.image, viewMode === 'grid' && styles.imageGrid, styles.imagePlaceholder]}>
                     <Text style={styles.placeholderText}>Image unavailable</Text>
                   </View>
                 )}
-                <View style={styles.info}>
+                <View style={[styles.info, viewMode === 'grid' && styles.infoGrid]}>
                   <Text style={styles.brand}>{item.brand}</Text>
                   <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-                  <View style={styles.metaRow}>
+                  <View style={[styles.metaRow, viewMode === 'grid' && styles.metaRowGrid]}>
                     <Text style={styles.type}>{item.productType}</Text>
                     <Text style={styles.price}>${item.price.toFixed(2)}</Text>
                   </View>
@@ -328,6 +365,40 @@ const styles = StyleSheet.create({
   loadingWrap: {
     paddingHorizontal: spacing.lg,
   },
+  viewModeBlock: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  viewModeLabel: {
+    ...typography.smallBold,
+    color: colors.primary,
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm,
+  },
+  viewModeOptions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  viewModeChip: {
+    minWidth: 76,
+    alignItems: 'center',
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  viewModeChipActive: {
+    backgroundColor: colors.primary,
+  },
+  viewModeChipText: {
+    ...typography.captionBold,
+    color: colors.primary,
+  },
+  viewModeChipTextActive: {
+    color: colors.textOnPrimary,
+  },
   inlineLoadingPill: {
     alignSelf: 'center',
     marginBottom: spacing.md,
@@ -345,6 +416,12 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxxl,
+  },
+  gridList: {
+    paddingBottom: spacing.xxxl,
+  },
+  gridRow: {
+    gap: spacing.md,
   },
   pagination: {
     flexDirection: 'row',
@@ -379,8 +456,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.xl,
     padding: spacing.md,
@@ -388,6 +463,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.primary,
     ...shadows.sm,
+  },
+  cardList: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardGrid: {
+    flex: 1,
   },
   cardPressed: {
     opacity: 0.9,
@@ -398,6 +480,11 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: radius.lg,
     backgroundColor: colors.skeleton,
+  },
+  imageGrid: {
+    width: '100%',
+    height: 148,
+    marginBottom: spacing.md,
   },
   imagePlaceholder: {
     alignItems: 'center',
@@ -413,6 +500,9 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
     marginLeft: spacing.md,
+  },
+  infoGrid: {
+    marginLeft: 0,
   },
   brand: {
     ...typography.small,
@@ -431,6 +521,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.sm,
     gap: spacing.md,
+  },
+  metaRowGrid: {
+    alignItems: 'flex-start',
+    flexDirection: 'column',
+    gap: spacing.xs,
   },
   type: {
     ...typography.small,
