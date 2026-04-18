@@ -122,14 +122,14 @@ export default function HomeScreen() {
 
         <View style={styles.hero}>
           <View style={styles.kicker}>
-            <Text style={styles.kickerText}>Compare beauty finds and price match them</Text>
+            <Text style={styles.kickerText}>Find dupes fast</Text>
           </View>
           <View>
             <Text style={styles.heading}>Find Your{'\n'}Perfect Dupe</Text>
           </View>
           <View>
             <Text style={styles.sub}>
-              Discover affordable alternatives to your favorite beauty products and scan live price-match offers.
+              Discover affordable beauty dupes and live price matches.
             </Text>
           </View>
 
@@ -503,15 +503,18 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     flex: 1,
+    alignItems: 'center',
   },
   suggestionBrand: {
     ...typography.small,
     color: colors.textMuted,
+    textAlign: 'center',
   },
   suggestionName: {
     ...typography.captionBold,
     color: colors.text,
     marginTop: 2,
+    textAlign: 'center',
   },
   section: {
     paddingTop: spacing.xxl,
@@ -519,6 +522,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.lg,
@@ -527,6 +531,7 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.primary,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   horizontalList: {
     paddingHorizontal: spacing.lg,
@@ -538,20 +543,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 2,
     borderColor: colors.primary,
+    alignItems: 'center',
     ...shadows.sm,
   },
   emptyActivityTitle: {
     ...typography.bodyBold,
     color: colors.primary,
+    textAlign: 'center',
   },
   emptyActivitySubtitle: {
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: spacing.sm,
     lineHeight: 20,
+    textAlign: 'center',
   },
   emptyActivityButton: {
-    alignSelf: 'flex-start',
     marginTop: spacing.lg,
     backgroundColor: colors.primary,
     borderRadius: radius.full,
@@ -569,15 +576,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 2,
     borderColor: colors.primary,
+    alignItems: 'center',
     ...shadows.sm,
   },
   disclaimerTitle: {
     ...typography.bodyBold,
     color: colors.primary,
+    textAlign: 'center',
   },
   disclaimerBody: {
     ...typography.caption,
     color: colors.textSecondary,
+    textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: 20,
   },

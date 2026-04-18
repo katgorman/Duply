@@ -295,11 +295,13 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.primary,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   subtitle: {
     ...typography.small,
     color: colors.textMuted,
     marginTop: 2,
+    textAlign: 'center',
   },
   searchWrap: {
     margin: spacing.lg,
@@ -322,6 +324,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     ...typography.body,
     backgroundColor: colors.surface,
+    textAlign: 'center',
   },
   sortBlock: {
     paddingHorizontal: spacing.lg,
@@ -330,6 +333,7 @@ const styles = StyleSheet.create({
   sortLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.xs,
     marginBottom: spacing.sm,
   },
@@ -375,12 +379,14 @@ const styles = StyleSheet.create({
   viewModeBlock: {
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
+    alignItems: 'center',
   },
   viewModeLabel: {
     ...typography.smallBold,
     color: colors.primary,
     textTransform: 'uppercase',
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   viewModeOptions: {
     flexDirection: 'row',
@@ -513,17 +519,20 @@ const styles = StyleSheet.create({
   },
   infoGrid: {
     marginLeft: 0,
+    alignItems: 'center',
   },
   brand: {
     ...typography.small,
     color: colors.accentDark,
     textTransform: 'uppercase',
     letterSpacing: 0,
+    textAlign: 'center',
   },
   name: {
     ...typography.captionBold,
     color: colors.text,
     marginTop: 2,
+    textAlign: 'center',
   },
   metaRow: {
     flexDirection: 'row',
@@ -542,10 +551,12 @@ const styles = StyleSheet.create({
     color: colors.primary,
     textTransform: 'capitalize',
     flex: 1,
+    textAlign: 'center',
   },
   price: {
     ...typography.bodyBold,
     color: colors.primary,
+    textAlign: 'center',
   },
   centerState: {
     flex: 1,

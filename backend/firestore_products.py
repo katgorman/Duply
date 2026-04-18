@@ -816,10 +816,7 @@ def category_counts():
         bucket = product.get("_bucket") or _product_bucket(product)
         counts[bucket] = counts.get(bucket, 0) + 1
 
-    _category_counts_cache = {
-        category: _rounded_category_estimate(count)
-        for category, count in counts.items()
-    }
+    _category_counts_cache = counts
     return _category_counts_cache
 
 

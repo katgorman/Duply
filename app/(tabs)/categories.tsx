@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { useCategories } from '../../hooks/useProducts';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { prefetchCategoryPage } from '../../services/api';
@@ -16,22 +17,25 @@ const FALLBACK_CATEGORIES = [
 
 export default function CategoriesScreen() {
   const router = useRouter();
+  const { data } = useCategories();
+  const categories = data?.length ? data : FALLBACK_CATEGORIES;
 
   useEffect(() => {
-    FALLBACK_CATEGORIES.forEach(category => {
+    categories.forEach(category => {
       void prefetchCategoryPage(category.productType, { page: 1, pageSize: 12, sort: 'popular' });
     });
-  }, []);
+  }, [categories]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
         <Text style={styles.title}>Categories</Text>
+        <Text style={styles.subtitle}>Browse every category with real product totals.</Text>
       </View>
 
       <View style={styles.content}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {FALLBACK_CATEGORIES.map((cat, i) => (
+          {categories.map((cat, i) => (
             <Animated.View key={cat.id} entering={FadeInDown.delay(i * 100).duration(400)}>
               <Pressable
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -44,6 +48,9 @@ export default function CategoriesScreen() {
               >
                 <View style={[styles.cardGradient, { backgroundColor: cat.color }]}>
                   <Text style={[styles.cardText, cat.id === 'other' && styles.cardTextDark]}>{cat.name}</Text>
+                  <Text style={[styles.cardCount, cat.id === 'other' && styles.cardCountDark]}>
+                    {typeof cat.count === 'number' ? `${cat.count.toLocaleString()} results` : 'Browse products'}
+                  </Text>
                   <Text style={[styles.cardStar, cat.id === 'other' && styles.cardStarDark]}>*</Text>
                 </View>
               </Pressable>
@@ -73,6 +80,13 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.primary,
     textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  subtitle: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.xs,
   },
   content: {
     flex: 1,
@@ -105,7 +119,18 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.text,
     textTransform: 'uppercase',
+    textAlign: 'center',
     zIndex: 1,
+  },
+  cardCount: {
+    ...typography.captionBold,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    zIndex: 1,
+  },
+  cardCountDark: {
+    color: colors.cream,
   },
   cardTextDark: {
     color: colors.surface,
