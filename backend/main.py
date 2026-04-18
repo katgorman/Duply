@@ -26,6 +26,7 @@ from firestore_products import (
     search_firestore_products,
     set_admin_job_state,
     upsert_firestore_products,
+    warm_catalog_cache,
 )
 from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 from web_products import (
@@ -50,6 +51,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _warm_catalog_on_startup():
+    try:
+        warm_catalog_cache()
+    except Exception:
+        # Best-effort warmup only. Requests should still work if warmup fails.
+        pass
 
 RESPONSE_CACHE_TTL_SECONDS = 300
 ADMIN_JOB_DEFAULT_MAX_STEPS = 1
@@ -350,7 +360,14 @@ def _product_from_record(record, fallback=None, enrich_image=False):
         record.get("type") or record.get("subcategory") or fallback.get("productType", "") or category
     )
     raw = record.get("raw", {})
-    image = record.get("image") or fallback.get("image", "")
+    merchant_offers = record.get("merchantOffers") or raw.get("merchantOffers") or []
+    offer_image = ""
+    for offer in merchant_offers:
+        if isinstance(offer, dict) and offer.get("image"):
+            offer_image = str(offer.get("image") or "").strip()
+            if offer_image:
+                break
+    image = record.get("image") or raw.get("image") or raw.get("imageUrl") or offer_image or fallback.get("image", "")
     product_url = record.get("title-href") or raw.get("productUrl") or raw.get("title-href") or ""
     if enrich_image and not image:
         image = find_product_image(brand, name, product_url)

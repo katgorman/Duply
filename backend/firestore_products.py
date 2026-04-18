@@ -410,6 +410,15 @@ def _normalize_firestore_product(doc):
         data.get("subcategory") or data.get("productType") or data.get("type") or category
     )
 
+    raw = data.get("raw", {}) if isinstance(data.get("raw"), dict) else {}
+    merchant_offers = data.get("merchantOffers") or raw.get("merchantOffers") or []
+    offer_image = ""
+    for offer in merchant_offers:
+        if isinstance(offer, dict) and offer.get("image"):
+            offer_image = str(offer.get("image") or "").strip()
+            if offer_image:
+                break
+
     return {
         "firestore_id": doc.id,
         "brand": data.get("Brand") or data.get("brand") or "",
@@ -426,7 +435,7 @@ def _normalize_firestore_product(doc):
         "type": product_type,
         "price": data.get("Price_USD") or data.get("price") or data.get("salePrice") or data.get("current_price") or 0,
         "rating": data.get("Rating") or data.get("rating") or data.get("avgRating") or 0,
-        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or "",
+        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or "",
         "raw": data,
     }
 
@@ -850,6 +859,14 @@ def _normalize_catalog_record(data, doc_id=""):
     product_type = normalize_product_type(
         data.get("subcategory") or data.get("productType") or data.get("type") or category
     )
+    raw = data.get("raw", {}) if isinstance(data.get("raw"), dict) else {}
+    merchant_offers = data.get("merchantOffers") or raw.get("merchantOffers") or []
+    offer_image = ""
+    for offer in merchant_offers:
+        if isinstance(offer, dict) and offer.get("image"):
+            offer_image = str(offer.get("image") or "").strip()
+            if offer_image:
+                break
 
     return _prepare_catalog_product({
         "firestore_id": doc_id or data.get("id") or build_catalog_product_id(data),
@@ -869,7 +886,7 @@ def _normalize_catalog_record(data, doc_id=""):
             data.get("Price_USD") or data.get("price") or data.get("salePrice") or data.get("current_price") or 0
         ),
         "rating": data.get("Rating") or data.get("rating") or data.get("avgRating") or 0,
-        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or "",
+        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or "",
         "raw": data,
     })
 
@@ -939,6 +956,11 @@ def _load_catalog_products(force_refresh=False):
 def _catalog_products_by_id_map():
     _load_catalog_products()
     return _catalog_products_by_id or {}
+
+
+def warm_catalog_cache():
+    _load_catalog_products()
+    category_counts()
 
 
 def _normalize_upsert_product(product):
