@@ -3,9 +3,7 @@ import React, { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Skeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
-import { useCategories } from '../../hooks/useProducts';
 import { prefetchCategoryPage } from '../../services/api';
 
 const FALLBACK_CATEGORIES = [
@@ -18,14 +16,12 @@ const FALLBACK_CATEGORIES = [
 
 export default function CategoriesScreen() {
   const router = useRouter();
-  const { data: categories, loading } = useCategories();
-  const visibleCategories = categories && categories.length > 0 ? categories : FALLBACK_CATEGORIES;
 
   useEffect(() => {
-    visibleCategories.forEach(category => {
+    FALLBACK_CATEGORIES.forEach(category => {
       void prefetchCategoryPage(category.productType);
     });
-  }, [visibleCategories]);
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -35,7 +31,7 @@ export default function CategoriesScreen() {
 
       <View style={styles.content}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {visibleCategories.map((cat, i) => (
+          {FALLBACK_CATEGORIES.map((cat, i) => (
             <Animated.View key={cat.id} entering={FadeInDown.delay(i * 100).duration(400)}>
               <Pressable
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -45,17 +41,10 @@ export default function CategoriesScreen() {
                     params: { category: cat.productType, title: cat.name },
                   })
                 }
-                >
-                  <View style={[styles.cardGradient, { backgroundColor: cat.color }]}>
-                    <Text style={[styles.cardText, cat.id === 'other' && styles.cardTextDark]}>{cat.name}</Text>
-                    {loading && (!categories || categories.length === 0) ? (
-                      <Skeleton width={112} height={16} borderRadius={radius.full} style={styles.countSkeleton} />
-                    ) : (
-                      <Text style={[styles.cardCount, cat.id === 'other' && styles.cardCountDark]}>
-                        Over {cat.count ?? 0} results
-                      </Text>
-                    )}
-                    <Text style={[styles.cardStar, cat.id === 'other' && styles.cardStarDark]}>*</Text>
+              >
+                <View style={[styles.cardGradient, { backgroundColor: cat.color }]}>
+                  <Text style={[styles.cardText, cat.id === 'other' && styles.cardTextDark]}>{cat.name}</Text>
+                  <Text style={[styles.cardStar, cat.id === 'other' && styles.cardStarDark]}>*</Text>
                 </View>
               </Pressable>
             </Animated.View>
@@ -117,19 +106,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     textTransform: 'uppercase',
     zIndex: 1,
-  },
-  cardCount: {
-    ...typography.captionBold,
-    color: colors.primary,
-    marginTop: spacing.xs,
-    zIndex: 1,
-  },
-  countSkeleton: {
-    marginTop: spacing.xs,
-    zIndex: 1,
-  },
-  cardCountDark: {
-    color: colors.cream,
   },
   cardTextDark: {
     color: colors.surface,
