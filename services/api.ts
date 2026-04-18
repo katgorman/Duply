@@ -92,11 +92,16 @@ export interface DataService {
 // and model-powered dupe lookup behind a single data service interface.
 export { makeupApiService as dataService } from './makeupApi';
 export {
+  getCachedDupesForProduct,
   getCachedCategoryPage,
+  getCachedPriceMatchesForProduct,
+  getCachedProductById,
   getCachedSearchProductsPage,
   prefetchCategoryPage,
+  prefetchDupesForProduct,
   prefetchProductById,
   prefetchProductsById,
+  prefetchPriceMatchesForProduct,
   prefetchSearchProductsPage,
   seedProductCache,
 } from './backendApi';

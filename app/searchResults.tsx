@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, {
   Easing,
   FadeInRight,
@@ -17,7 +17,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { usePreferences } from '../hooks/usePreferences';
 import type { Dupe, Product } from '../services/api';
-import { dataService, prefetchProductsById, seedProductCache } from '../services/api';
+import {
+  dataService,
+  getCachedDupesForProduct,
+  getCachedProductById,
+  prefetchDupesForProduct,
+  prefetchPriceMatchesForProduct,
+  prefetchProductById,
+  prefetchProductsById,
+  seedProductCache,
+} from '../services/api';
 
 function LoadingDot({ delay = 0 }: { delay?: number }) {
   const bounce = useSharedValue(0);
@@ -47,12 +56,14 @@ function LoadingDot({ delay = 0 }: { delay?: number }) {
 export default function SearchResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; productId?: string; productName?: string }>();
+  const cachedSourceProduct = params.productId ? getCachedProductById(params.productId) : null;
+  const cachedDupes = getCachedDupesForProduct(cachedSourceProduct);
 
-  const [dupes, setDupes] = useState<Dupe[]>([]);
+  const [dupes, setDupes] = useState<Dupe[]>(cachedDupes || []);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedDupes);
   const [error, setError] = useState<string | null>(null);
-  const [sourceProduct, setSourceProduct] = useState<Product | null>(null);
+  const [sourceProduct, setSourceProduct] = useState<Product | null>(cachedSourceProduct);
   const { showHigherPricedMatches } = usePreferences();
   const isInitialLoading = loading && dupes.length === 0;
   const isRefreshingResults = loading && dupes.length > 0;
@@ -77,6 +88,7 @@ export default function SearchResultsScreen() {
       }
 
       setSourceProduct(product);
+      prefetchPriceMatchesForProduct(product);
       const foundDupes = await dataService.findDupes(product);
       setDupes(
         foundDupes.filter(item => (
@@ -97,8 +109,22 @@ export default function SearchResultsScreen() {
   }, [loadDupes]);
 
   useEffect(() => {
+    if (cachedSourceProduct) {
+      setSourceProduct(prev => prev || cachedSourceProduct);
+      if (cachedDupes?.length) {
+        setDupes(prev => prev.length > 0 ? prev : cachedDupes);
+      } else {
+        prefetchDupesForProduct(cachedSourceProduct);
+      }
+    }
+  }, [cachedDupes, cachedSourceProduct]);
+
+  useEffect(() => {
     if (sourceProduct) {
       seedProductCache(sourceProduct);
+      prefetchProductById(sourceProduct.id);
+      prefetchDupesForProduct(sourceProduct);
+      prefetchPriceMatchesForProduct(sourceProduct);
     }
     dupes.forEach(item => {
       seedProductCache(item.original);
@@ -165,11 +191,11 @@ export default function SearchResultsScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {sourceProduct?.name || params.productName || params.q || 'Results'}
+            {sourceProduct?.familyName || sourceProduct?.name || params.productName || params.q || 'Results'}
           </Text>
-          {!loading && (
-            <Text style={styles.headerSub}>{dupes.length} dupes ready to compare</Text>
-          )}
+          <Text style={styles.headerSub}>
+            {loading && dupes.length > 0 ? 'Refreshing dupes...' : `${dupes.length} dupes ready to compare`}
+          </Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -228,6 +254,7 @@ export default function SearchResultsScreen() {
           ListHeaderComponent={
             isRefreshingResults ? (
               <View style={styles.inlineLoadingPill}>
+                <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={styles.inlineLoadingText}>Refreshing dupes...</Text>
               </View>
             ) : null
@@ -369,6 +396,9 @@ const styles = StyleSheet.create({
   inlineLoadingPill: {
     alignSelf: 'center',
     marginBottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,

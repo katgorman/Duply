@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { useActivity } from '../hooks/useActivity';
 import { useSearch } from '../hooks/useProducts';
+import { prefetchDupesForProduct, seedProductCache } from '../services/api';
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
@@ -31,6 +32,11 @@ export default function SearchScreen() {
   };
 
   const openProduct = (id: string, name: string) => {
+    const selected = results.find(item => item.id === id);
+    if (selected) {
+      seedProductCache(selected);
+      prefetchDupesForProduct(selected);
+    }
     addRecentSearch(query.trim());
     router.push({
       pathname: '/searchResults',

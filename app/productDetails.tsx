@@ -2,7 +2,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
@@ -10,7 +10,14 @@ import { colors, radius, shadows, spacing, typography } from '../constants/theme
 import { useActivity } from '../hooks/useActivity';
 import { useFavorites } from '../hooks/useFavorites';
 import type { PriceOffer, Product } from '../services/api';
-import { dataService } from '../services/api';
+import {
+  dataService,
+  getCachedPriceMatchesForProduct,
+  getCachedProductById,
+  prefetchPriceMatchesForProduct,
+  prefetchProductById,
+  seedProductCache,
+} from '../services/api';
 
 function toTitleCase(value?: string) {
   if (!value) {
@@ -38,17 +45,6 @@ export default function ProductDetailsScreen() {
     fromFeatured?: string;
   }>();
 
-  const [original, setOriginal] = useState<Product | null>(null);
-  const [dupeProduct, setDupeProduct] = useState<Product | null>(null);
-  const [similarity, setSimilarity] = useState(0);
-  const [savingsAmount, setSavingsAmount] = useState(0);
-  const [matchReason, setMatchReason] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [previewImage, setPreviewImage] = useState('');
-  const [priceOffers, setPriceOffers] = useState<PriceOffer[]>([]);
-  const [priceOffersLoading, setPriceOffersLoading] = useState(false);
-  const [priceOffersError, setPriceOffersError] = useState('');
-  const [selectedVariantId, setSelectedVariantId] = useState('');
   const {
     fromFeatured,
     id,
@@ -59,9 +55,30 @@ export default function ProductDetailsScreen() {
     savings: savingsParam,
   } = params;
   const isComparisonView = Boolean((fromFeatured && id) || (originalId && dupeProductId));
+  const cachedOriginal = getCachedProductById(originalId || id || '');
+  const cachedDupe = getCachedProductById(dupeProductId || '');
+  const cachedPriceOffers = getCachedPriceMatchesForProduct(cachedOriginal);
+
+  const [original, setOriginal] = useState<Product | null>(cachedOriginal);
+  const [dupeProduct, setDupeProduct] = useState<Product | null>(cachedDupe);
+  const [similarity, setSimilarity] = useState(0);
+  const [savingsAmount, setSavingsAmount] = useState(0);
+  const [matchReason, setMatchReason] = useState('');
+  const [loading, setLoading] = useState(!(cachedOriginal || cachedDupe));
+  const [previewImage, setPreviewImage] = useState('');
+  const [priceOffers, setPriceOffers] = useState<PriceOffer[]>(cachedPriceOffers || []);
+  const [priceOffersLoading, setPriceOffersLoading] = useState(false);
+  const [priceOffersError, setPriceOffersError] = useState('');
+  const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const hasCachedContent = Boolean(cachedOriginal || cachedDupe);
+    if (hasCachedContent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       if (fromFeatured && id) {
         const featuredDupes = await dataService.getFeaturedDupes();
@@ -105,8 +122,9 @@ export default function ProductDetailsScreen() {
       // Error loading products
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [addRecentView, dupeProductId, fromFeatured, id, matchReasonParam, originalId, savingsParam, similarityParam]);
+  }, [addRecentView, cachedDupe, cachedOriginal, dupeProductId, fromFeatured, id, matchReasonParam, originalId, savingsParam, similarityParam]);
 
   useEffect(() => {
     loadData();
@@ -125,6 +143,7 @@ export default function ProductDetailsScreen() {
 
       setPriceOffersLoading(true);
       setPriceOffersError('');
+      prefetchPriceMatchesForProduct(original);
       try {
         const offers = await dataService.findPriceMatches(original);
         if (active) {
@@ -150,6 +169,17 @@ export default function ProductDetailsScreen() {
   }, [isComparisonView, original]);
 
   useEffect(() => {
+    if (cachedOriginal) {
+      setOriginal(prev => prev || cachedOriginal);
+      prefetchProductById(cachedOriginal.id);
+    }
+    if (cachedDupe) {
+      setDupeProduct(prev => prev || cachedDupe);
+      prefetchProductById(cachedDupe.id);
+    }
+  }, [cachedDupe, cachedOriginal]);
+
+  useEffect(() => {
     if (!original?.variantOptions?.length) {
       setSelectedVariantId('');
       return;
@@ -158,6 +188,12 @@ export default function ProductDetailsScreen() {
     const matchingVariant = original.variantOptions.find(variant => variant.id === original.id);
     setSelectedVariantId(matchingVariant?.id || original.variantOptions[0]?.id || '');
   }, [original]);
+
+  useEffect(() => {
+    if (cachedPriceOffers?.length) {
+      setPriceOffers(prev => prev.length > 0 ? prev : cachedPriceOffers);
+    }
+  }, [cachedPriceOffers]);
 
   if (loading) {
     return (
@@ -214,6 +250,9 @@ export default function ProductDetailsScreen() {
 
   const openProductPage = (product: Product | null) => {
     if (!product?.id) return;
+    seedProductCache(product);
+    prefetchProductById(product.id);
+    prefetchPriceMatchesForProduct(product);
 
     router.push({
       pathname: '/productDetails',
@@ -288,6 +327,12 @@ export default function ProductDetailsScreen() {
           </TouchableOpacity>
         )}
       </View>
+      {refreshing ? (
+        <View style={styles.refreshPill}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.refreshPillText}>Refreshing product...</Text>
+        </View>
+      ) : null}
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {isComparisonView ? (
@@ -618,6 +663,23 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     ...typography.bodyBold,
+    color: colors.primary,
+  },
+  refreshPill: {
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.cream,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  refreshPillText: {
+    ...typography.smallBold,
     color: colors.primary,
   },
   productHero: {

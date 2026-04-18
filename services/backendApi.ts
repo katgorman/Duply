@@ -103,6 +103,32 @@ function getCachedPage<T>(key: string) {
   return getCachedValue<T>(key);
 }
 
+function buildDupesCacheKey(product: Product) {
+  const payload = {
+    brand: product.brand,
+    name: product.name,
+    price: product.price,
+    image: product.image,
+    category: product.category,
+    productType: product.productType,
+  };
+  return `dupes:${JSON.stringify(payload)}`;
+}
+
+function buildPriceMatchesCacheKey(product: Product) {
+  const payload = {
+    id: product.id,
+    brand: product.brand,
+    name: product.name,
+    price: product.price,
+    image: product.image,
+    category: product.category,
+    productType: product.productType,
+    productUrl: product.productUrl,
+  };
+  return `priceMatches:${JSON.stringify(payload)}`;
+}
+
 export function getCachedCategoryPage(
   category: string,
   options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},
@@ -115,6 +141,20 @@ export function getCachedSearchProductsPage(
   options: { page?: number; pageSize?: number; sort?: string } = {},
 ) {
   return getCachedPage<CategoryProductsPage>(buildSearchPageCacheKey(query, options));
+}
+
+export function getCachedProductById(id: string) {
+  return getCachedValue<Product | null>(`product:${id}`);
+}
+
+export function getCachedDupesForProduct(product: Product | null | undefined) {
+  if (!product) return null;
+  return getCachedValue<Dupe[]>(buildDupesCacheKey(product));
+}
+
+export function getCachedPriceMatchesForProduct(product: Product | null | undefined) {
+  if (!product) return null;
+  return getCachedValue<PriceOffer[]>(buildPriceMatchesCacheKey(product));
 }
 
 function getCachedValue<T>(key: string): T | null {
@@ -174,6 +214,20 @@ export function prefetchSearchProductsPage(
 ) {
   if (!query.trim()) return;
   void searchProductsPageFromBackend(query, options).catch(() => {
+    // Best-effort cache warming only.
+  });
+}
+
+export function prefetchDupesForProduct(product: Product | null | undefined) {
+  if (!product) return;
+  void findDupesFromBackend(product).catch(() => {
+    // Best-effort cache warming only.
+  });
+}
+
+export function prefetchPriceMatchesForProduct(product: Product | null | undefined) {
+  if (!product) return;
+  void findPriceMatchesFromBackend(product).catch(() => {
     // Best-effort cache warming only.
   });
 }
@@ -335,36 +389,25 @@ export async function getProductByIdFromBackend(id: string): Promise<Product | n
 }
 
 export async function findDupesFromBackend(product: Product): Promise<Dupe[]> {
-  const payload = {
-    brand: product.brand,
-    name: product.name,
-    price: product.price,
-    image: product.image,
-    category: product.category,
-    productType: product.productType,
-  };
-  const cacheKey = `dupes:${JSON.stringify(payload)}`;
+  const cacheKey = buildDupesCacheKey(product);
   return fetchJsonWithCache<Dupe[]>(`${BASE_URL}/dupes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      brand: product.brand,
+      name: product.name,
+      price: product.price,
+      image: product.image,
+      category: product.category,
+      productType: product.productType,
+    }),
   }, cacheKey, CACHE_TTL_MS.dupes);
 }
 
 export async function findPriceMatchesFromBackend(product: Product): Promise<PriceOffer[]> {
-  const payload = {
-    id: product.id,
-    brand: product.brand,
-    name: product.name,
-    price: product.price,
-    image: product.image,
-    category: product.category,
-    productType: product.productType,
-    productUrl: product.productUrl,
-  };
-  const cacheKey = `priceMatches:${JSON.stringify(payload)}`;
+  const cacheKey = buildPriceMatchesCacheKey(product);
   const cached = getCachedValue<PriceOffer[]>(cacheKey);
   if (cached !== null) {
     return cached;
@@ -375,7 +418,16 @@ export async function findPriceMatchesFromBackend(product: Product): Promise<Pri
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      id: product.id,
+      brand: product.brand,
+      name: product.name,
+      price: product.price,
+      image: product.image,
+      category: product.category,
+      productType: product.productType,
+      productUrl: product.productUrl,
+    }),
   });
 
   const text = await response.text();
