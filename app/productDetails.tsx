@@ -6,7 +6,6 @@ import { ActivityIndicator, Linking, Modal, ScrollView, StyleSheet, Text, Toucha
 import Animated, {
   Easing,
   FadeInDown,
-  FadeInUp,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -19,6 +18,12 @@ import { colors, radius, shadows, spacing, typography } from '../constants/theme
 import { useActivity } from '../hooks/useActivity';
 import { useFavorites } from '../hooks/useFavorites';
 import type { PriceOffer, Product } from '../services/api';
+import {
+  buildComparisonStats,
+  getConfidenceBand,
+  getConfidenceSummary,
+  getMatchReasonLabels,
+} from '../services/dupeInsights';
 import {
   dataService,
   getCachedPriceMatchesForProduct,
@@ -353,9 +358,7 @@ export default function ProductDetailsScreen() {
   const savingsPercent = original.price > 0
     ? Math.round((actualSavings / original.price) * 100)
     : 0;
-  const matchReasonParts = matchReason
-    ? matchReason.split(',').map(part => part.trim()).filter(Boolean)
-    : [];
+  const matchReasonParts = getMatchReasonLabels(matchReason);
   const primaryProductFacts = [
     { label: 'Brand', value: original.brand },
     { label: 'Ingredients', value: original.mainIngredient },
@@ -379,6 +382,11 @@ export default function ProductDetailsScreen() {
   ].filter(item => item.value);
   const displayRating = isComparisonView ? (dupeProduct?.rating || original.rating) : original.rating;
   const hasRating = displayRating > 0;
+  const confidenceBand = getConfidenceBand(similarity);
+  const confidenceSummary = getConfidenceSummary(similarity);
+  const comparisonStats = isComparisonView && dupeProduct
+    ? buildComparisonStats(original, dupeProduct)
+    : [];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -490,6 +498,34 @@ export default function ProductDetailsScreen() {
           </Animated.View>
         )}
 
+        {isComparisonView && dupeProduct && (
+          <Animated.View entering={FadeInDown.delay(150).duration(400)}>
+            <Text style={styles.sectionTitle}>Match Breakdown</Text>
+            <View style={styles.insightBox}>
+              <View style={styles.insightTopRow}>
+                <View style={styles.insightMetricCard}>
+                  <Text style={styles.insightMetricNumber}>{similarity}%</Text>
+                  <Text style={styles.insightMetricLabel}>Match Score</Text>
+                </View>
+                <View style={styles.insightMetricCard}>
+                  <Text style={styles.insightMetricNumber}>{confidenceBand}</Text>
+                  <Text style={styles.insightMetricLabel}>Confidence</Text>
+                </View>
+              </View>
+              <Text style={styles.insightSummary}>{confidenceSummary}</Text>
+              {matchReasonParts.length > 0 ? (
+                <View style={styles.reasonChipGrid}>
+                  {matchReasonParts.map(reason => (
+                    <View key={reason} style={styles.reasonChip}>
+                      <Text style={styles.reasonChipText}>{reason}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </Animated.View>
+        )}
+
         {!isComparisonView && (
           <Animated.View entering={FadeInDown.delay(175).duration(400)}>
             <Text style={styles.sectionTitle}>Price Match Results</Text>
@@ -551,7 +587,7 @@ export default function ProductDetailsScreen() {
         )}
 
         {isComparisonView && (
-          <Animated.View entering={FadeInDown.delay(200).duration(400)}>
+          <Animated.View entering={FadeInDown.delay(225).duration(400)}>
             <Text style={styles.sectionTitle}>Product Comparison</Text>
             <View style={styles.comparisonRow}>
               <TouchableOpacity
@@ -660,6 +696,36 @@ export default function ProductDetailsScreen() {
           </Animated.View>
         )}
 
+        {isComparisonView && comparisonStats.length > 0 ? (
+          <Animated.View entering={FadeInDown.delay(260).duration(400)}>
+            <Text style={styles.sectionTitle}>Compare The Details</Text>
+            <View style={styles.compareTable}>
+              {comparisonStats.map(stat => (
+                <View key={stat.label} style={styles.compareRow}>
+                  <View style={styles.compareValueBlock}>
+                    <Text style={[styles.compareValue, stat.winner === 'original' && styles.compareValueMuted]}>
+                      {stat.originalValue}
+                    </Text>
+                    <Text style={styles.compareSideLabel}>Original</Text>
+                  </View>
+                  <View style={styles.compareCenterBlock}>
+                    <Text style={styles.compareLabel}>{stat.label}</Text>
+                    <Text style={styles.compareWinner}>
+                      {stat.winner === 'dupe' ? 'Dupe wins' : stat.winner === 'original' ? 'Original wins' : 'Even'}
+                    </Text>
+                  </View>
+                  <View style={styles.compareValueBlock}>
+                    <Text style={[styles.compareValue, stat.winner === 'dupe' && styles.compareValueAccent]}>
+                      {stat.dupeValue}
+                    </Text>
+                    <Text style={styles.compareSideLabel}>Dupe</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Animated.View>
+        ) : null}
+
         {productFacts.length > 0 && (
           <Animated.View entering={FadeInDown.delay(375).duration(400)}>
             <Text style={styles.sectionTitle}>Product Info</Text>
@@ -668,22 +734,6 @@ export default function ProductDetailsScreen() {
                 <View key={item.label} style={styles.factRow}>
                   <Text style={styles.factLabel}>{item.label}</Text>
                   <Text style={styles.factValue}>{item.value}</Text>
-                </View>
-              ))}
-            </View>
-          </Animated.View>
-        )}
-
-        {isComparisonView && matchReasonParts.length > 0 && (
-          <Animated.View entering={FadeInUp.delay(400).duration(400)}>
-            <Text style={styles.sectionTitle}>Why This Match?</Text>
-            <View style={styles.reasonsBox}>
-              {matchReasonParts.map((reason, i) => (
-                <View key={i} style={styles.reasonRow}>
-                  <View style={styles.checkCircle}>
-                    <Feather name="check" size={14} color={colors.success} />
-                  </View>
-                  <Text style={styles.reasonText}>{reason}</Text>
                 </View>
               ))}
             </View>
@@ -1141,6 +1191,66 @@ const styles = StyleSheet.create({
     ...typography.bodyBold,
     color: colors.primary,
   },
+  insightBox: {
+    marginHorizontal: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.sm,
+  },
+  insightTopRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  insightMetricCard: {
+    flex: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  insightMetricNumber: {
+    ...typography.bodyBold,
+    color: colors.primary,
+    textAlign: 'center',
+  },
+  insightMetricLabel: {
+    ...typography.small,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  insightSummary: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  reasonChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  reasonChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.cream,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reasonChipText: {
+    ...typography.smallBold,
+    color: colors.primary,
+  },
   sectionTitle: {
     ...typography.bodyBold,
     color: colors.primary,
@@ -1153,6 +1263,57 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
+  },
+  compareTable: {
+    marginHorizontal: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.sm,
+    gap: spacing.md,
+  },
+  compareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  compareValueBlock: {
+    flex: 1,
+  },
+  compareCenterBlock: {
+    width: 94,
+    alignItems: 'center',
+  },
+  compareLabel: {
+    ...typography.smallBold,
+    color: colors.primary,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  compareWinner: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+  compareValue: {
+    ...typography.captionBold,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  compareValueAccent: {
+    color: colors.success,
+  },
+  compareValueMuted: {
+    color: colors.primary,
+  },
+  compareSideLabel: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.xs,
   },
   productCard: {
     flex: 1,
@@ -1257,16 +1418,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginLeft: spacing.sm,
   },
-  reasonsBox: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    ...shadows.sm,
-    gap: spacing.md,
-  },
   factsBox: {
     marginHorizontal: spacing.lg,
     padding: spacing.lg,
@@ -1292,24 +1443,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     textAlign: 'right',
-  },
-  reasonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  checkCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.successLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reasonText: {
-    ...typography.caption,
-    color: colors.text,
-    flex: 1,
   },
   previewBackdrop: {
     flex: 1,

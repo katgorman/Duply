@@ -753,6 +753,30 @@ def _fallback_dupe_record_score(original_product, candidate_product, name_tokens
     return round(score, 3)
 
 
+def _dupe_quality_score(product):
+    if not product:
+        return 0
+
+    score = 0.0
+    if product.get("image"):
+        score += 12
+    if product.get("productUrl"):
+        score += 12
+    if _normalize_text(product.get("source")) == "catalog":
+        score += 8
+
+    reviews = _normalize_number(product.get("numberOfReviews"), 0)
+    rating = _normalize_number(product.get("rating"), 0)
+    price = _normalize_price(product.get("price"))
+
+    score += min(reviews, 500) / 25
+    score += rating * 3
+    if price > 0:
+        score += 4
+
+    return round(score, 2)
+
+
 def _fallback_dupe_candidates(original_product, brand: str, name: str, product_type: str, category: str, limit: int = 20):
     if not original_product:
         return []
@@ -2139,6 +2163,7 @@ async def get_dupes(request: Request):
                 "similarity": similarity,
                 "matchReason": match_reason,
                 "savings": savings,
+                "qualityScore": _dupe_quality_score(dupe),
             })
         output = [
             item for item in output
@@ -2155,8 +2180,10 @@ async def get_dupes(request: Request):
         deduped_output.sort(
             key=lambda item: (
                 -item["similarity"],
+                -(item.get("qualityScore") or 0),
                 item["savings"] <= 0,
                 -item["savings"],
+                not bool(item["dupe"].get("image")),
                 item["dupe"]["price"] <= 0,
                 item["dupe"]["price"],
             )

@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { usePreferences } from '../hooks/usePreferences';
 import type { Dupe, Product } from '../services/api';
+import { getDupeCallout } from '../services/dupeInsights';
 import {
   dataService,
   getCachedDupesForProduct,
@@ -176,6 +177,9 @@ export default function SearchResultsScreen() {
 
   const renderItem = ({ item, index }: { item: Dupe; index: number }) => (
     <Animated.View entering={FadeInRight.delay(index * 80).duration(400)}>
+      {(() => {
+        const callout = getDupeCallout(item);
+        return (
       <TouchableOpacity
         style={[styles.card, viewMode === 'grid' ? styles.cardGrid : styles.cardList]}
         activeOpacity={0.7}
@@ -212,19 +216,29 @@ export default function SearchResultsScreen() {
             <View style={styles.matchBadge}>
               <Text style={styles.matchText}>{item.similarity}% match</Text>
             </View>
+            <View style={styles.confidenceBadge}>
+              <Text style={styles.confidenceBadgeText}>{callout.confidence}</Text>
+            </View>
           </View>
-          {item.matchReason ? (
-            <Text style={styles.matchReason} numberOfLines={2}>{item.matchReason}</Text>
+          {callout.reasonLabels.length > 0 ? (
+            <View style={styles.reasonChips}>
+              {callout.reasonLabels.slice(0, 2).map(label => (
+                <View key={label} style={styles.reasonChip}>
+                  <Text style={styles.reasonChipText}>{label}</Text>
+                </View>
+              ))}
+            </View>
           ) : null}
+          <Text style={styles.matchReason} numberOfLines={2}>{callout.summary}</Text>
         </View>
         <View style={[styles.priceCol, viewMode === 'grid' && styles.priceColGrid]}>
           <Text style={styles.dupePrice}>${item.dupe.price.toFixed(2)}</Text>
           <Text style={styles.origPrice}>${item.original.price.toFixed(2)}</Text>
-          {Math.max(item.original.price - item.dupe.price, 0) > 0 ? (
-            <Text style={styles.savingsText}>Save ${Math.max(item.original.price - item.dupe.price, 0).toFixed(2)}</Text>
-          ) : null}
+          <Text style={styles.savingsText}>{callout.savingsText}</Text>
         </View>
       </TouchableOpacity>
+        );
+      })()}
     </Animated.View>
   );
 
@@ -587,6 +601,8 @@ const styles = StyleSheet.create({
   matchRow: {
     flexDirection: 'row',
     marginTop: spacing.xs,
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   matchBadge: {
     backgroundColor: colors.cream,
@@ -601,10 +617,38 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
   },
+  confidenceBadge: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+  },
+  confidenceBadgeText: {
+    ...typography.smallBold,
+    color: colors.textOnPrimary,
+  },
+  reasonChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  reasonChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reasonChipText: {
+    ...typography.small,
+    color: colors.textSecondary,
+  },
   matchReason: {
     ...typography.small,
     color: colors.textMuted,
-    marginTop: 4,
+    marginTop: spacing.sm,
   },
   priceCol: {
     alignItems: 'flex-end',
