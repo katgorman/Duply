@@ -45,14 +45,15 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = radius.sm
 export function ProductCardSkeleton() {
   return (
     <View style={skeletonStyles.card}>
-      <Skeleton width={64} height={64} borderRadius={radius.md} />
+      <Skeleton width="100%" height={128} borderRadius={radius.lg} />
       <View style={skeletonStyles.info}>
-        <Skeleton width="40%" height={12} />
-        <Skeleton width="80%" height={14} style={{ marginTop: 6 }} />
-        <Skeleton width="30%" height={12} style={{ marginTop: 6 }} />
-      </View>
-      <View>
-        <Skeleton width={50} height={16} />
+        <Skeleton width="34%" height={12} />
+        <Skeleton width="88%" height={16} style={{ marginTop: 8 }} />
+        <Skeleton width="70%" height={16} style={{ marginTop: 6 }} />
+        <View style={skeletonStyles.footer}>
+          <Skeleton width={58} height={28} borderRadius={radius.full} />
+          <Skeleton width={72} height={16} />
+        </View>
       </View>
     </View>
   );
@@ -71,16 +72,19 @@ export function DupeCardSkeleton() {
 
 const skeletonStyles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.surface,
-    padding: spacing.md,
     borderRadius: radius.lg,
     marginBottom: spacing.md,
-    gap: spacing.md,
+    overflow: 'hidden',
   },
   info: {
-    flex: 1,
+    padding: spacing.md,
+  },
+  footer: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   dupeCard: {
     width: 160,

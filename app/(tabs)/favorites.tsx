@@ -8,6 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useFavorites } from '../../hooks/useFavorites';
 
+const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
+
 export default function FavoritesScreen() {
   const router = useRouter();
   const { favorites, loaded, removeFavorite, clearFavorites } = useFavorites();
@@ -90,11 +92,19 @@ function FavoriteCard({
   return (
     <Animated.View entering={FadeInDown.delay(index * 70).duration(280)}>
       <Pressable style={({ pressed }) => [styles.card, pressed && { opacity: 0.88 }]} onPress={onOpen}>
-        <Image
-          source={{ uri: item.originalImage }}
-          style={styles.cardImage}
-          contentFit="cover"
-        />
+        {item.originalImage ? (
+          <Image
+            source={{ uri: item.originalImage }}
+            style={styles.cardImage}
+            contentFit="cover"
+            placeholder={{ blurhash: IMAGE_BLURHASH }}
+            transition={220}
+          />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+            <Text style={styles.cardImagePlaceholderText}>Image unavailable</Text>
+          </View>
+        )}
 
         <View style={styles.cardInfo}>
           <View style={styles.badgeRow}>
@@ -239,6 +249,16 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: radius.lg,
     backgroundColor: colors.skeleton,
+  },
+  cardImagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  cardImagePlaceholderText: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
   },
   cardInfo: {
     flex: 1,

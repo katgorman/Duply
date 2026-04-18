@@ -12,6 +12,7 @@ import { prefetchDupesForProduct, prefetchProductsById, prefetchSearchProductsPa
 
 const EMPTY_PRODUCTS: Product[] = [];
 const DEFAULT_PAGE_SIZE = 18;
+const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
 
 type SortOption = 'az' | 'priceLow' | 'priceHigh' | 'popular';
 type ViewMode = 'list' | 'grid';
@@ -212,7 +213,13 @@ export default function SearchCatalogScreen() {
               onPress={() => openProductForDupes(item.id, item.familyName || item.name)}
             >
               {item.image ? (
-                <Image source={{ uri: item.image }} style={[styles.image, viewMode === 'grid' && styles.imageGrid]} contentFit="cover" />
+                <Image
+                  source={{ uri: item.image }}
+                  style={[styles.image, viewMode === 'grid' && styles.imageGrid]}
+                  contentFit="cover"
+                  placeholder={{ blurhash: IMAGE_BLURHASH }}
+                  transition={220}
+                />
               ) : (
                 <View style={[styles.image, viewMode === 'grid' && styles.imageGrid, styles.imagePlaceholder]}>
                   <Text style={styles.placeholderText}>Image unavailable</Text>

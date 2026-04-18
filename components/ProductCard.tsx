@@ -3,6 +3,8 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 
+const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
+
 interface ProductCardProps {
   name: string;
   brand: string;
@@ -32,8 +34,8 @@ export default function ProductCard({
           source={{ uri: image }}
           style={styles.image}
           contentFit="cover"
-          placeholder={{ blurhash: 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH' }}
-          transition={300}
+          placeholder={{ blurhash: IMAGE_BLURHASH }}
+          transition={220}
         />
       ) : (
         <View style={[styles.image, styles.imagePlaceholder]}>

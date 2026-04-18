@@ -28,6 +28,8 @@ import {
   seedProductCache,
 } from '../services/api';
 
+const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
+
 function LoadingDot({ delay = 0 }: { delay?: number }) {
   const bounce = useSharedValue(0);
 
@@ -154,7 +156,13 @@ export default function SearchResultsScreen() {
         }
       >
         {item.dupe.image ? (
-          <Image source={{ uri: item.dupe.image }} style={[styles.imageBox, viewMode === 'grid' && styles.imageBoxGrid]} contentFit="cover" />
+          <Image
+            source={{ uri: item.dupe.image }}
+            style={[styles.imageBox, viewMode === 'grid' && styles.imageBoxGrid]}
+            contentFit="cover"
+            placeholder={{ blurhash: IMAGE_BLURHASH }}
+            transition={220}
+          />
         ) : (
           <View style={[styles.imageBox, viewMode === 'grid' && styles.imageBoxGrid, styles.imagePlaceholder]}>
             <Text style={styles.imagePlaceholderText}>Image unavailable</Text>

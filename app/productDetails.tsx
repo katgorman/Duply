@@ -19,6 +19,8 @@ import {
   seedProductCache,
 } from '../services/api';
 
+const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
+
 function toTitleCase(value?: string) {
   if (!value) {
     return '';
@@ -353,7 +355,13 @@ export default function ProductDetailsScreen() {
           <Animated.View entering={FadeInDown.duration(500)} style={styles.productHero}>
             {displayImage ? (
               <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(displayImage)}>
-                <Image source={{ uri: displayImage }} style={styles.heroImage} contentFit="cover" />
+                <Image
+                  source={{ uri: displayImage }}
+                  style={styles.heroImage}
+                  contentFit="cover"
+                  placeholder={{ blurhash: IMAGE_BLURHASH }}
+                  transition={220}
+                />
               </TouchableOpacity>
             ) : (
               <View style={[styles.heroImage, styles.imagePlaceholder]}>
@@ -468,7 +476,13 @@ export default function ProductDetailsScreen() {
               >
                 <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(original.image)}>
                   {original.image ? (
-                    <Image source={{ uri: original.image }} style={styles.productImage} contentFit="cover" />
+                    <Image
+                      source={{ uri: original.image }}
+                      style={styles.productImage}
+                      contentFit="cover"
+                      placeholder={{ blurhash: IMAGE_BLURHASH }}
+                      transition={220}
+                    />
                   ) : (
                     <View style={[styles.productImage, styles.imagePlaceholder]}>
                       <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
@@ -496,7 +510,13 @@ export default function ProductDetailsScreen() {
                 >
                   <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(dupeProduct.image)}>
                     {dupeProduct.image ? (
-                      <Image source={{ uri: dupeProduct.image }} style={styles.productImage} contentFit="cover" />
+                      <Image
+                        source={{ uri: dupeProduct.image }}
+                        style={styles.productImage}
+                        contentFit="cover"
+                        placeholder={{ blurhash: IMAGE_BLURHASH }}
+                        transition={220}
+                      />
                     ) : (
                       <View style={[styles.productImage, styles.imagePlaceholder]}>
                         <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
@@ -610,7 +630,13 @@ export default function ProductDetailsScreen() {
               <Ionicons name="close" size={24} color={colors.textOnPrimary} />
             </TouchableOpacity>
             {previewImage ? (
-              <Image source={{ uri: previewImage }} style={styles.previewImage} contentFit="contain" />
+              <Image
+                source={{ uri: previewImage }}
+                style={styles.previewImage}
+                contentFit="contain"
+                placeholder={{ blurhash: IMAGE_BLURHASH }}
+                transition={180}
+              />
             ) : null}
           </View>
         </View>
