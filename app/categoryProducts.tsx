@@ -238,27 +238,29 @@ export default function CategoryProductsScreen() {
             </Pressable>
           )}
           ListFooterComponent={
-            <View style={styles.pagination}>
-              <Pressable
-                disabled={page <= 1 || loading}
-                onPress={() => setPage(prev => Math.max(1, prev - 1))}
-                style={[styles.pageButton, (page <= 1 || loading) && styles.pageButtonDisabled]}
-              >
-                <Text style={[styles.pageButtonText, (page <= 1 || loading) && styles.pageButtonTextDisabled]}>
-                  {loading ? 'Loading...' : 'Previous'}
-                </Text>
-              </Pressable>
-              <Text style={styles.pageCount}>Page {page} of {totalPages}</Text>
-              <Pressable
-                disabled={page >= totalPages || loading}
-                onPress={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                style={[styles.pageButton, (page >= totalPages || loading) && styles.pageButtonDisabled]}
-              >
-                <Text style={[styles.pageButtonText, (page >= totalPages || loading) && styles.pageButtonTextDisabled]}>
-                  {loading ? 'Loading...' : 'Next'}
-                </Text>
-              </Pressable>
-            </View>
+            totalPages > 1 ? (
+              <View style={styles.pagination}>
+                <Pressable
+                  disabled={page <= 1 || loading}
+                  onPress={() => setPage(prev => Math.max(1, prev - 1))}
+                  style={[styles.pageButton, (page <= 1 || loading) && styles.pageButtonDisabled]}
+                >
+                  <Text style={[styles.pageButtonText, (page <= 1 || loading) && styles.pageButtonTextDisabled]}>
+                    {loading ? 'Loading...' : 'Previous'}
+                  </Text>
+                </Pressable>
+                <Text style={styles.pageCount}>Page {page} of {totalPages}</Text>
+                <Pressable
+                  disabled={page >= totalPages || loading}
+                  onPress={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                  style={[styles.pageButton, (page >= totalPages || loading) && styles.pageButtonDisabled]}
+                >
+                  <Text style={[styles.pageButtonText, (page >= totalPages || loading) && styles.pageButtonTextDisabled]}>
+                    {loading ? 'Loading...' : 'Next'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null
           }
         />
       )}
