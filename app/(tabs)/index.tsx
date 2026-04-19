@@ -201,13 +201,25 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.section}>
-          <View style={styles.disclaimerCard}>
-            <Text style={styles.disclaimerTitle}>Current Known Issues</Text>
-            <Text style={styles.disclaimerBody}>
-              Some catalog coverage is still incomplete, some product images or live retailer matches can be missing,
-              and crawl-based retailer data may lag behind the latest store inventory. Search quality and product-family
-              grouping are improving, but a few results can still feel imperfect while the catalog continues to sync.
+          <View style={styles.featureCard}>
+            <Text style={styles.featureTitle}>How Duply Works</Text>
+            <Text style={styles.featureBody}>
+              Search a product, open the closest match, then compare dupes and live retailer offers without leaving the flow.
             </Text>
+            <View style={styles.featureSteps}>
+              <View style={styles.featureStepPill}>
+                <Text style={styles.featureStepText}>1. Search a brand or product</Text>
+              </View>
+              <View style={styles.featureStepPill}>
+                <Text style={styles.featureStepText}>2. Open the best source product</Text>
+              </View>
+              <View style={styles.featureStepPill}>
+                <Text style={styles.featureStepText}>3. Compare dupes and prices</Text>
+              </View>
+            </View>
+            <Pressable onPress={() => router.push('/categories')} style={styles.featureButton}>
+              <Text style={styles.featureButtonText}>Browse Categories</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -484,18 +496,16 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   suggestionBrand: {
     ...typography.small,
     color: colors.textMuted,
-    textAlign: 'center',
   },
   suggestionName: {
     ...typography.captionBold,
     color: colors.text,
     marginTop: 2,
-    textAlign: 'center',
   },
   section: {
     paddingTop: spacing.xxl,
@@ -550,26 +560,53 @@ const styles = StyleSheet.create({
     ...typography.captionBold,
     color: colors.textOnPrimary,
   },
-  disclaimerCard: {
+  featureCard: {
     marginHorizontal: spacing.lg,
     padding: spacing.xl,
     borderRadius: radius.xl,
     backgroundColor: colors.surface,
     borderWidth: 2,
     borderColor: colors.primary,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     ...shadows.sm,
   },
-  disclaimerTitle: {
+  featureTitle: {
     ...typography.bodyBold,
     color: colors.primary,
-    textAlign: 'center',
   },
-  disclaimerBody: {
+  featureBody: {
     ...typography.caption,
     color: colors.textSecondary,
-    textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: 20,
+  },
+  featureSteps: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  featureStepPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  featureStepText: {
+    ...typography.small,
+    color: colors.textSecondary,
+  },
+  featureButton: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  featureButtonText: {
+    ...typography.captionBold,
+    color: colors.textOnPrimary,
   },
 });

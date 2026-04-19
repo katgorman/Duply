@@ -85,6 +85,31 @@ def _cache_set(key, value):
     return value
 
 
+def _cache_get_search_candidates(query, local_limit, web_limit, max_results):
+    normalized_query = _normalize_text(query)
+    cache_key = ("search-candidates", normalized_query)
+    cached = _cache_get(cache_key)
+    if isinstance(cached, dict):
+        cached_items = cached.get("items") or []
+        cached_budget = int(cached.get("budget") or 0)
+        cached_complete = bool(cached.get("complete"))
+        if cached_complete or cached_budget >= max_results or len(cached_items) >= max_results:
+            return cached_items[:max_results]
+
+    combined = _search_products_with_fallback(
+        query,
+        local_limit=local_limit,
+        web_limit=web_limit,
+        max_results=max_results,
+    )
+    _cache_set(cache_key, {
+        "items": combined,
+        "budget": max_results,
+        "complete": len(combined) < max_results,
+    })
+    return combined
+
+
 def _normalize_number(value, default=0):
     try:
         if value is None or value == "":
@@ -106,6 +131,157 @@ def _normalize_text(value):
     if value is None:
         return ""
     return str(value).strip().lower()
+
+
+VARIANT_STOP_WORDS = {
+    "shade",
+    "shades",
+    "color",
+    "colors",
+    "colour",
+    "colours",
+    "hue",
+    "tone",
+    "tones",
+    "finish",
+    "variant",
+}
+
+
+def _normalize_family_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", _normalize_text(value)).strip()
+
+
+def _to_title_case(value: str) -> str:
+    return " ".join(
+        part[:1].upper() + part[1:]
+        for part in re.split(r"\s+", str(value or "").strip())
+        if part
+    )
+
+
+def _looks_like_variant_suffix(value: str) -> bool:
+    normalized = _normalize_family_token(value)
+    if not normalized:
+        return False
+
+    if re.match(r"^[a-z]?\d{2,6}(?:\s+[a-z0-9].*)?$", str(value or "").strip(), re.IGNORECASE):
+        return True
+
+    token_count = len(normalized.split())
+    return token_count <= 4 and len(normalized) <= 28
+
+
+def _normalize_variant_label(value: str) -> str:
+    return re.sub(r"^[|:,\-()\s]+|[|:,\-()\s]+$", "", str(value or "").strip())
+
+
+def _split_title_stem(name: str):
+    trimmed = str(name or "").strip()
+    separated = re.match(r"^(.*?)(?:\s+(?:\||:|-)\s+)([^|:]{1,40})$", trimmed)
+    if separated and separated.group(1) and separated.group(2):
+        stem = separated.group(1).strip()
+        suffix = _normalize_variant_label(separated.group(2))
+        if stem and _looks_like_variant_suffix(suffix) and len(stem) >= max(6, int(len(trimmed) * 0.45)):
+            return stem, suffix
+
+    patterns = [
+        r"^(.*)\s+[|:-]\s*([a-z]?\d{2,6}\b[^|:-]{0,40})\s*$",
+        r"^(.*)\s+[(-]([^()]*?(?:shade|color|colour|tone|hue|finish|variant)[^()]*)[)\-]\s*$",
+        r"^(.*)\s+\b(?:in\s+)?(?:shade|color|colour|tone|hue|finish)\b\s+(.+)$",
+        r"^(.*)\s+\b(?:mini|travel size|full size)\b\s*$",
+    ]
+
+    for pattern in patterns:
+        matched = re.match(pattern, trimmed, re.IGNORECASE)
+        stem = (matched.group(1).strip() if matched and matched.group(1) else "")
+        suffix = _normalize_variant_label(matched.group(2) if matched and matched.lastindex and matched.lastindex >= 2 else "")
+        if stem and len(stem) >= max(6, int(len(trimmed) * 0.45)):
+            if not suffix or _looks_like_variant_suffix(suffix):
+                return stem, suffix
+
+    return trimmed, ""
+
+
+def _product_family_name(product):
+    stem, _ = _split_title_stem(product.get("name") or "")
+    return stem or product.get("name") or ""
+
+
+def _product_family_key(product):
+    brand = _normalize_family_token(product.get("brand") or "")
+    category = _normalize_family_token(product.get("category") or "")
+    product_type = _normalize_family_token(product.get("productType") or "")
+    family_name = _normalize_family_token(_product_family_name(product))
+    return "|".join([brand, category, product_type, family_name])
+
+
+def _extract_variant_label(product, family_name):
+    name = str(product.get("name") or "").strip()
+    if name and family_name and _normalize_text(name) != _normalize_text(family_name):
+        stem, variant_label = _split_title_stem(name)
+        normalized_variant = _normalize_family_token(variant_label)
+        if (
+            _normalize_text(stem) == _normalize_text(family_name.strip())
+            and variant_label
+            and len(variant_label) <= 40
+            and normalized_variant
+            and normalized_variant not in VARIANT_STOP_WORDS
+        ):
+            return _to_title_case(variant_label)
+    return ""
+
+
+def _with_variant_options(product, siblings):
+    family_name = _product_family_name(product)
+    variant_options = []
+
+    for sibling in siblings:
+        label = _extract_variant_label(sibling, family_name)
+        if not label and not sibling.get("image"):
+            continue
+        variant_options.append({
+            "id": sibling.get("id"),
+            "label": label,
+            "image": sibling.get("image") or "",
+            "price": sibling.get("price") or 0,
+        })
+
+    variant_options.sort(key=lambda item: ((item.get("label") or "").lower(), item.get("id") or ""))
+
+    return {
+        **product,
+        "familyName": family_name,
+        "variantGroupId": _product_family_key(product),
+        "variantOptions": variant_options if len(variant_options) > 1 else [],
+        "selectedVariantLabel": _extract_variant_label(product, family_name),
+    }
+
+
+def _group_products_by_family(products):
+    groups = {}
+
+    for product in products or []:
+        key = _product_family_key(product)
+        groups.setdefault(key, []).append(product)
+
+    consolidated = []
+    for siblings in groups.values():
+        preferred = next(
+            (product for product in siblings if not _extract_variant_label(product, _product_family_name(product))),
+            None,
+        )
+        if not preferred:
+            preferred = sorted(
+                siblings,
+                key=lambda product: (
+                    not bool(product.get("image")),
+                    _normalize_text(product.get("name")),
+                ),
+            )[0]
+        consolidated.append(_with_variant_options(preferred, siblings))
+
+    return consolidated
 
 
 GENERIC_NAME_STOPWORDS = {
@@ -1864,13 +2040,14 @@ def search_products(q: str, limit: int = 8):
     if cached is not None:
         return cached
 
-    combined = _search_products_with_fallback(
+    combined = _cache_get_search_candidates(
         q,
-        local_limit=max(24, normalized_limit * 3),
+        local_limit=max(16, normalized_limit * 3),
         web_limit=max(8, normalized_limit * 2),
-        max_results=max(32, normalized_limit * 4),
+        max_results=max(24, normalized_limit * 3),
     )
-    return _cache_set(cache_key, combined[:normalized_limit])
+    grouped = _group_products_by_family(combined)
+    return _cache_set(cache_key, grouped[:normalized_limit])
 
 
 @app.get("/products/search-page")
@@ -1884,21 +2061,22 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
     if cached is not None:
         return cached
 
-    target_count = min(max(normalized_page * normalized_page_size * 4, 240), 720)
-    combined = _search_products_with_fallback(
+    target_count = min(max(normalized_page * normalized_page_size * 2, normalized_page_size * 6, 72), 640)
+    combined = _cache_get_search_candidates(
         q,
         local_limit=target_count,
-        web_limit=min(max(24, normalized_page_size * 2), target_count),
+        web_limit=min(max(18, normalized_page_size * 2), 36) if normalized_page == 1 else 0,
         max_results=target_count,
     )
-    combined.sort(key=lambda product: _product_sort_key(product, normalized_sort))
+    grouped = _group_products_by_family(combined)
+    grouped.sort(key=lambda product: _product_sort_key(product, normalized_sort))
 
-    total = len(combined)
+    total = len(grouped)
     total_pages = max(1, (total + normalized_page_size - 1) // normalized_page_size)
     safe_page = min(normalized_page, total_pages)
     start = (safe_page - 1) * normalized_page_size
     end = start + normalized_page_size
-    page_items = combined[start:end]
+    page_items = grouped[start:end]
 
     return _cache_set(cache_key, {
         "items": page_items,
@@ -1911,15 +2089,18 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
 
 @app.get("/products/category/{category_or_type}")
 def get_products_by_category(category_or_type: str, page: int = 1, page_size: int = 24, q: str = "", sort: str = "popular"):
-    cache_key = ("category", category_or_type, page, page_size, _normalize_text(q), sort)
+    normalized_page = max(page, 1)
+    normalized_page_size = max(1, min(page_size, 96))
+    cache_key = ("category", category_or_type, normalized_page, normalized_page_size, _normalize_text(q), sort)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
+    target_count = min(max(normalized_page * normalized_page_size * 3, 96), 720)
     result = list_products_by_category(
         category_or_type,
-        limit=page_size,
-        page=page,
+        limit=target_count,
+        page=1,
         query=q,
         sort_by=sort,
     )
@@ -1934,12 +2115,20 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
             continue
         available_items.append(normalized_product)
 
-    available_items = _dedupe_products(available_items, require_image=False)
+    grouped_items = _group_products_by_family(_dedupe_products(available_items, require_image=False))
+    total = len(grouped_items)
+    total_pages = max(1, (total + normalized_page_size - 1) // normalized_page_size)
+    safe_page = min(normalized_page, total_pages)
+    start = (safe_page - 1) * normalized_page_size
+    end = start + normalized_page_size
 
     return _cache_set(cache_key, {
         **result,
-        "items": available_items[:page_size],
-        "total": max(result.get("total", 0), len(available_items)),
+        "items": grouped_items[start:end],
+        "total": total,
+        "page": safe_page,
+        "pageSize": normalized_page_size,
+        "totalPages": total_pages,
     })
 
 

@@ -175,11 +175,11 @@ export default function SearchResultsScreen() {
     ]);
   }, [dupes, sourceProduct]);
 
-  const renderItem = ({ item, index }: { item: Dupe; index: number }) => (
-    <Animated.View entering={FadeInRight.delay(index * 80).duration(400)}>
-      {(() => {
-        const callout = getDupeCallout(item);
-        return (
+  const renderItem = ({ item, index }: { item: Dupe; index: number }) => {
+    const callout = getDupeCallout(item);
+
+    return (
+      <Animated.View entering={FadeInRight.delay(index * 80).duration(400)}>
       <TouchableOpacity
         style={[styles.card, viewMode === 'grid' ? styles.cardGrid : styles.cardList]}
         activeOpacity={0.7}
@@ -237,10 +237,9 @@ export default function SearchResultsScreen() {
           <Text style={styles.savingsText}>{callout.savingsText}</Text>
         </View>
       </TouchableOpacity>
-        );
-      })()}
-    </Animated.View>
-  );
+      </Animated.View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -258,6 +257,18 @@ export default function SearchResultsScreen() {
         </View>
         <View style={{ width: 40 }} />
       </View>
+
+      {sourceProduct ? (
+        <View style={styles.sourceSummaryCard}>
+          <Text style={styles.sourceSummaryEyebrow}>Source Product</Text>
+          <Text style={styles.sourceSummaryTitle}>{sourceProduct.brand} {sourceProduct.familyName || sourceProduct.name}</Text>
+          <Text style={styles.sourceSummaryBody}>
+            {showHigherPricedMatches
+              ? 'Showing all ranked matches, including premium alternatives.'
+              : 'Showing dupes priced at or below the source product by default.'}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.viewModeWrap}>
         {(['list', 'grid'] as const).map(mode => {
@@ -290,9 +301,8 @@ export default function SearchResultsScreen() {
         </View>
       ) : dupes.length === 0 ? (
         <View style={styles.centerMessage}>
-          <Text style={{ fontSize: 48, marginBottom: spacing.lg }}>🔍</Text>
           <Text style={styles.emptyTitle}>No dupes found</Text>
-          <Text style={styles.emptySubtitle}>Try searching for a different product</Text>
+          <Text style={styles.emptySubtitle}>Try another product name, brand, or category search.</Text>
         </View>
       ) : (
         <FlatList
@@ -463,6 +473,31 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  sourceSummaryCard: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.sm,
+  },
+  sourceSummaryEyebrow: {
+    ...typography.smallBold,
+    color: colors.accentDark,
+    textTransform: 'uppercase',
+  },
+  sourceSummaryTitle: {
+    ...typography.bodyBold,
+    color: colors.primary,
+    marginTop: spacing.xs,
+  },
+  sourceSummaryBody: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   viewModeChip: {
     flex: 1,

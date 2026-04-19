@@ -144,6 +144,7 @@ _metadata_products_by_id = None
 _catalog_products = None
 _catalog_products_by_id = None
 _catalog_products_by_category = None
+_catalog_search_prefix_index = None
 _catalog_cache_loaded_at = 0.0
 _category_counts_cache = None
 
@@ -253,10 +254,11 @@ def build_web_cache_id(cache_kind, cache_key):
 
 
 def invalidate_catalog_cache():
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_cache_loaded_at, _category_counts_cache
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache
     _catalog_products = None
     _catalog_products_by_id = None
     _catalog_products_by_category = None
+    _catalog_search_prefix_index = None
     _catalog_cache_loaded_at = 0.0
     _category_counts_cache = None
     _search_cache.clear()
@@ -558,6 +560,65 @@ def _product_search_score(product, normalized_query, query_tokens):
     return score
 
 
+def _searchable_tokens(product):
+    searchable = " ".join([
+        str(product.get("_searchBrand") or product.get("brand") or ""),
+        str(product.get("_searchName") or product.get("product_name") or ""),
+        str(product.get("_searchCategory") or product.get("category") or ""),
+        str(product.get("_searchType") or product.get("subcategory") or product.get("type") or ""),
+    ])
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", searchable)
+        if len(token) >= 2
+    }
+
+
+def _token_prefixes(token, min_length=2, max_length=10):
+    safe_token = normalize_text(token)
+    if len(safe_token) < min_length:
+        return []
+    return [
+        safe_token[:length]
+        for length in range(min_length, min(len(safe_token), max_length) + 1)
+    ]
+
+
+def _indexed_search_candidates(query_tokens):
+    _load_catalog_products()
+
+    if not query_tokens or _catalog_search_prefix_index is None:
+        return None
+
+    candidate_ids = None
+    index_used = False
+
+    for token in query_tokens:
+        if len(token) < 2:
+            continue
+
+        prefix_matches = _catalog_search_prefix_index.get(token)
+        if not prefix_matches:
+            return None
+
+        token_ids = set(prefix_matches)
+        candidate_ids = token_ids if candidate_ids is None else (candidate_ids & token_ids)
+        index_used = True
+
+        if not candidate_ids:
+            return []
+
+    if not index_used or candidate_ids is None:
+        return None
+
+    products_by_id = _catalog_products_by_id or {}
+    return [
+        products_by_id[product_id]
+        for product_id in candidate_ids
+        if product_id in products_by_id
+    ]
+
+
 def _search_cache_get(key):
     entry = _search_cache.get(key)
     if not entry:
@@ -735,7 +796,9 @@ def search_firestore_products(query, limit=20):
         return cached[:limit]
 
     query_tokens = [token for token in normalized_query.split() if token]
-    products = _load_catalog_products()
+    products = _indexed_search_candidates(query_tokens)
+    if products is None:
+        products = _load_catalog_products()
     if not products:
         _search_cache_set(cache_key, [])
         return []
@@ -893,7 +956,7 @@ def _product_identity_key(product):
 
 
 def _load_catalog_products(force_refresh=False):
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_cache_loaded_at
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at
 
     if (
         not force_refresh
@@ -905,6 +968,7 @@ def _load_catalog_products(force_refresh=False):
     merged = []
     by_id = {}
     by_category = {}
+    search_prefix_index = {}
     seen_identity = set()
 
     if db is not None:
@@ -943,9 +1007,16 @@ def _load_catalog_products(force_refresh=False):
                 continue
             by_category.setdefault(key, []).append(product)
 
+        product_id = product.get("firestore_id")
+        if product_id:
+            for token in _searchable_tokens(product):
+                for prefix in _token_prefixes(token):
+                    search_prefix_index.setdefault(prefix, set()).add(product_id)
+
     _catalog_products = merged
     _catalog_products_by_id = by_id
     _catalog_products_by_category = by_category
+    _catalog_search_prefix_index = search_prefix_index
     _catalog_cache_loaded_at = time.time()
     return _catalog_products
 

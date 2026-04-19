@@ -121,6 +121,16 @@ export default function SearchCatalogScreen() {
         />
       </View>
 
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryEyebrow}>Search Catalog</Text>
+        <Text style={styles.summaryTitle}>
+          {submittedQuery ? `Showing matches for "${submittedQuery}"` : 'Start with a product name or brand'}
+        </Text>
+        <Text style={styles.summaryBody}>
+          Results are grouped by product family, and the next page is warmed in the background for faster browsing.
+        </Text>
+      </View>
+
       <View style={styles.sortBlock}>
         <View style={styles.sortLabelRow}>
           <ArrowDown width={16} height={16} stroke={colors.primary} />
@@ -330,6 +340,31 @@ const styles = StyleSheet.create({
     color: colors.text,
     ...typography.body,
     backgroundColor: colors.surface,
+  },
+  summaryCard: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.sm,
+  },
+  summaryEyebrow: {
+    ...typography.smallBold,
+    color: colors.accentDark,
+    textTransform: 'uppercase',
+  },
+  summaryTitle: {
+    ...typography.bodyBold,
+    color: colors.primary,
+    marginTop: spacing.xs,
+  },
+  summaryBody: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   sortBlock: {
     paddingHorizontal: spacing.lg,

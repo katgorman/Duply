@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import type { Category, CategoryProductsPage, Dupe, PriceOffer, Product } from './api';
-import { findFamilyVariants, groupCategoryProductsPage, groupProductsByFamily, withVariantOptions } from './productFamilies';
+import { findFamilyVariants, groupProductsByFamily, withVariantOptions } from './productFamilies';
 
 type CacheEntry<T> = {
   expiresAt: number;
@@ -71,6 +71,7 @@ function getBackendBaseUrl(): string {
 const BASE_URL = getBackendBaseUrl();
 const responseCache = new Map<string, CacheEntry<unknown>>();
 const inflightRequests = new Map<string, Promise<unknown>>();
+const MAX_CACHE_ENTRIES = 200;
 
 function buildCategoryCacheKey(
   category: string,
@@ -189,6 +190,13 @@ function getCachedValue<T>(key: string): T | null {
 }
 
 function setCachedValue<T>(key: string, value: T, ttlMs: number) {
+  if (!responseCache.has(key) && responseCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = responseCache.keys().next().value;
+    if (oldestKey) {
+      responseCache.delete(oldestKey);
+    }
+  }
+
   responseCache.set(key, {
     value,
     expiresAt: Date.now() + ttlMs,
@@ -344,55 +352,6 @@ function normalizeRawCategoryPage(
   return parsed;
 }
 
-async function buildGroupedWindowFromRawPages(
-  fetchPage: (page: number, pageSize: number) => Promise<CategoryProductsPage>,
-  requestedPage: number,
-  requestedPageSize: number,
-): Promise<CategoryProductsPage> {
-  const targetGroupedCount = requestedPage * requestedPageSize;
-  const rawPageSize = Math.max(requestedPageSize * 4, 40);
-  const rawItems: Product[] = [];
-  let totalRawItems = 0;
-  let totalRawPages = 1;
-
-  for (let rawPage = 1; rawPage <= totalRawPages; rawPage += 1) {
-    const nextPage = await fetchPage(rawPage, rawPageSize);
-    rawItems.push(...nextPage.items);
-    totalRawItems = nextPage.total;
-    totalRawPages = nextPage.totalPages || 1;
-
-    const groupedSoFar = groupProductsByFamily(rawItems);
-    if (groupedSoFar.length >= targetGroupedCount || rawPage >= totalRawPages) {
-      const totalGroupedPages = Math.max(1, Math.ceil(groupedSoFar.length / requestedPageSize));
-      const safePage = Math.min(requestedPage, totalGroupedPages);
-      const start = (safePage - 1) * requestedPageSize;
-      const end = start + requestedPageSize;
-
-      return {
-        items: groupedSoFar.slice(start, end),
-        total: groupedSoFar.length,
-        page: safePage,
-        pageSize: requestedPageSize,
-        totalPages: totalGroupedPages,
-      };
-    }
-  }
-
-  const grouped = groupProductsByFamily(rawItems);
-  const totalGroupedPages = Math.max(1, Math.ceil(grouped.length / requestedPageSize));
-  const safePage = Math.min(requestedPage, totalGroupedPages);
-  const start = (safePage - 1) * requestedPageSize;
-  const end = start + requestedPageSize;
-
-  return {
-    items: grouped.slice(start, end),
-    total: grouped.length || totalRawItems,
-    page: safePage,
-    pageSize: requestedPageSize,
-    totalPages: totalGroupedPages,
-  };
-}
-
 export async function searchProductsFromBackend(query: string, options: { limit?: number } = {}): Promise<Product[]> {
   const trimmed = query.trim().toLowerCase();
   const params = new URLSearchParams({
@@ -410,15 +369,9 @@ export async function searchProductsPageFromBackend(
   query: string,
   options: { page?: number; pageSize?: number; sort?: string } = {},
 ): Promise<CategoryProductsPage> {
-  const requestedPage = options.page || 1;
-  const requestedPageSize = options.pageSize || 24;
-  const grouped = await buildGroupedWindowFromRawPages(
-    (page, pageSize) => fetchSearchProductsPageRaw(query, { ...options, page, pageSize }),
-    requestedPage,
-    requestedPageSize,
-  );
-  seedProductsCache(grouped.items);
-  return grouped;
+  const page = await fetchSearchProductsPageRaw(query, options);
+  seedProductsCache(page.items);
+  return page;
 }
 
 export async function getCategoriesFromBackend(): Promise<Category[]> {
@@ -430,18 +383,10 @@ export async function getProductsByCategoryFromBackend(
   category: string,
   options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},
 ): Promise<CategoryProductsPage> {
-  const requestedPage = options.page || 1;
-  const requestedPageSize = options.pageSize || 24;
-  const grouped = await buildGroupedWindowFromRawPages(
-    async (page, pageSize) => {
-      const parsed = await fetchCategoryProductsPageRaw(category, { ...options, page, pageSize });
-      return normalizeRawCategoryPage(parsed, page, pageSize);
-    },
-    requestedPage,
-    requestedPageSize,
-  );
-  seedProductsCache(grouped.items);
-  return grouped;
+  const parsed = await fetchCategoryProductsPageRaw(category, options);
+  const page = normalizeRawCategoryPage(parsed, options.page || 1, options.pageSize || 24);
+  seedProductsCache(page.items);
+  return page;
 }
 
 

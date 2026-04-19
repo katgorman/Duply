@@ -220,7 +220,6 @@ export default function ProductDetailsScreen() {
 
       setPriceOffersLoading(true);
       setPriceOffersError('');
-      prefetchPriceMatchesForProduct(original);
       try {
         const offers = await dataService.findPriceMatches(original);
         if (active) {
@@ -657,7 +656,7 @@ export default function ProductDetailsScreen() {
           </Animated.View>
         )}
 
-        {!isComparisonView && original.colors && original.colors.length > 0 && (
+        {!isComparisonView && original.colors && original.colors.length > 0 && !(original.variantOptions?.length > 1) && (
           <Animated.View entering={FadeInDown.delay(300).duration(400)}>
             <Text style={styles.sectionTitle}>Available Shades</Text>
             <View style={styles.shadesRow}>
