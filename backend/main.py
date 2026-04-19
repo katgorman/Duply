@@ -2071,7 +2071,7 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
     if cached is not None:
         return cached
 
-    target_count = min(max(normalized_page * normalized_page_size * 3, 96), 720)
+    target_count = min(max(normalized_page * normalized_page_size * 2, 40), 240)
     result = list_products_by_category(
         category_or_type,
         limit=target_count,

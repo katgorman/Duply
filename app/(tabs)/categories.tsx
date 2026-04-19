@@ -34,7 +34,7 @@ export default function CategoriesScreen() {
 
   useEffect(() => {
     categories.forEach(category => {
-      void prefetchCategoryPage(category.productType, { page: 1, pageSize: 12, sort: 'popular' });
+      void prefetchCategoryPage(category.productType, { page: 1, pageSize: 10, sort: 'popular' });
     });
   }, [categories]);
 
@@ -92,12 +92,13 @@ export default function CategoriesScreen() {
             <Animated.View key={cat.id} entering={FadeInDown.delay(i * 100).duration(400)}>
               <Pressable
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                onPress={() =>
+                onPress={() => {
+                  void prefetchCategoryPage(cat.productType, { page: 1, pageSize: 10, sort: 'popular' });
                   router.push({
                     pathname: '/categoryProducts',
                     params: { category: cat.productType, title: cat.name },
-                  })
-                }
+                  });
+                }}
               >
                 <View style={[styles.cardGradient, { backgroundColor: cat.color }]}>
                   <Text style={[styles.cardText, cat.id === 'other' && styles.cardTextDark]}>{cat.name}</Text>

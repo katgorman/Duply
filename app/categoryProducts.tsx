@@ -6,7 +6,6 @@ import { ArrowDown, ArrowLeft, Search, Star } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useProductsByCategory } from '../hooks/useProducts';
 import type { Product } from '../services/api';
 import { prefetchCategoryPage, prefetchProductsById, seedProductCache } from '../services/api';
@@ -34,9 +33,8 @@ export default function CategoryProductsScreen() {
   const [sortBy, setSortBy] = useState<SortOption>('popular');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [page, setPage] = useState(1);
-  const debouncedQuery = useDebouncedValue(query.trim(), 220);
   const pageSize = DEFAULT_PAGE_SIZE;
-  const { data, loading, error } = useProductsByCategory(category, { page, pageSize, query: debouncedQuery, sort: sortBy });
+  const { data, loading, error } = useProductsByCategory(category, { page, pageSize, query, sort: sortBy });
   const products = data?.items || EMPTY_PRODUCTS;
   const totalProducts = data?.total || 0;
   const totalPages = data?.totalPages || 1;
@@ -46,7 +44,7 @@ export default function CategoryProductsScreen() {
 
   useEffect(() => {
     setPage(1);
-  }, [category, debouncedQuery, sortBy]);
+  }, [category, query, sortBy]);
 
   useEffect(() => {
     if (data?.totalPages && page > data.totalPages) {
@@ -67,10 +65,10 @@ export default function CategoryProductsScreen() {
     prefetchCategoryPage(category, {
       page: page + 1,
       pageSize,
-      query: debouncedQuery,
+      query,
       sort: sortBy,
     });
-  }, [category, data, debouncedQuery, page, pageSize, sortBy, totalPages]);
+  }, [category, data, page, pageSize, query, sortBy, totalPages]);
 
   const openProduct = (id: string, name: string) => {
     const selected = products.find(item => item.id === id);
@@ -109,18 +107,6 @@ export default function CategoryProductsScreen() {
           placeholderTextColor={colors.textMuted}
           style={styles.searchInput}
         />
-      </View>
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryEyebrow}>{debouncedQuery ? 'Filtered Browse' : 'Category Browse'}</Text>
-        <Text style={styles.summaryTitle}>
-          {debouncedQuery ? `Results for "${debouncedQuery}"` : `Best of ${title}`}
-        </Text>
-        <Text style={styles.summaryBody}>
-          {debouncedQuery
-            ? 'Typing is lightly delayed before we refresh the list, so browsing stays smooth.'
-            : 'Popular product families load first, and the next page is prefetched in the background.'}
-        </Text>
       </View>
 
       <View style={styles.sortBlock}>
@@ -338,31 +324,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     ...typography.body,
     backgroundColor: colors.surface,
-  },
-  summaryCard: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    ...shadows.sm,
-  },
-  summaryEyebrow: {
-    ...typography.smallBold,
-    color: colors.accentDark,
-    textTransform: 'uppercase',
-  },
-  summaryTitle: {
-    ...typography.bodyBold,
-    color: colors.primary,
-    marginTop: spacing.xs,
-  },
-  summaryBody: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
   },
   sortBlock: {
     paddingHorizontal: spacing.lg,
