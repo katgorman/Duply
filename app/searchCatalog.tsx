@@ -122,13 +122,7 @@ export default function SearchCatalogScreen() {
       </View>
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryEyebrow}>Search Catalog</Text>
-        <Text style={styles.summaryTitle}>
-          {submittedQuery ? `Showing matches for "${submittedQuery}"` : 'Start with a product name or brand'}
-        </Text>
-        <Text style={styles.summaryBody}>
-          Results are grouped by product family, and the next page is warmed in the background for faster browsing.
-        </Text>
+        <Text style={styles.summaryTitle}>{'Showing matches for "product"'}</Text>
       </View>
 
       <View style={styles.sortBlock}>
