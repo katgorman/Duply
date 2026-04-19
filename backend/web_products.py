@@ -306,6 +306,24 @@ def _normalize_retailer_name(value):
     return normalized
 
 
+def _normalize_brand_value(value):
+    if isinstance(value, dict):
+        for key in ("name", "brand", "title"):
+            nested = _normalize_brand_value(value.get(key))
+            if nested:
+                return nested
+        return ""
+    if isinstance(value, list):
+        for item in value:
+            nested = _normalize_brand_value(item)
+            if nested:
+                return nested
+        return ""
+    brand = html.unescape(str(value or "").strip())
+    brand = re.sub(r"\s+", " ", brand)
+    return brand.strip(" -|")
+
+
 def _is_merchandise_product_title(title, url=""):
     text = normalize_text(title)
     page_url = normalize_text(url)
@@ -676,10 +694,65 @@ def _extract_breadcrumb_category(page_html):
     return ""
 
 
+def _extract_brand_from_page(page_html, product_data, title="", retailer=""):
+    candidates = [
+        product_data.get("brand") if isinstance(product_data, dict) else "",
+        product_data.get("manufacturer") if isinstance(product_data, dict) else "",
+        _extract_meta_content(page_html, "product:brand"),
+        _extract_meta_content(page_html, "og:brand"),
+        _extract_meta_content(page_html, "twitter:label1") if "brand" in normalize_text(_extract_meta_content(page_html, "twitter:label1")) else "",
+        _extract_meta_content(page_html, "twitter:data1") if not _extract_price(_extract_meta_content(page_html, "twitter:data1")) else "",
+    ]
+    for candidate in candidates:
+        brand = _normalize_brand_value(candidate)
+        if brand:
+            return brand
+
+    cleaned_title = _clean_product_title(title, retailer)
+    title_separators = [" by ", " - ", " | ", ":"]
+    normalized_title = html.unescape(str(cleaned_title or "").strip())
+    for separator in title_separators:
+        if separator in normalized_title.lower():
+            parts = re.split(re.escape(separator), normalized_title, maxsplit=1, flags=re.IGNORECASE)
+            if parts:
+                brand = _normalize_brand_value(parts[0])
+                if brand and len(brand.split()) <= 5:
+                    return brand
+    return ""
+
+
+def _normalize_availability_status(value):
+    status = normalize_text(value)
+    if not status:
+        return "active"
+    status = status.rsplit("/", 1)[-1]
+    status = status.replace("_", " ").replace("-", " ").strip()
+    return status or "active"
+
+
+def _is_available_status(value):
+    status = _normalize_availability_status(value)
+    blocked = {
+        "discontinued",
+        "out of stock",
+        "outofstock",
+        "sold out",
+        "soldout",
+        "unavailable",
+        "offline only",
+        "not available",
+        "backorder",
+        "preorder",
+        "pre order",
+    }
+    return status not in blocked
+
+
 def _normalize_official_offer(url, retailer, title, price, availability_status, image=""):
     clean_url = str(url or "").strip()
     clean_price = _extract_price(price)
-    if not clean_url or not is_approved_retailer_url(clean_url):
+    normalized_status = _normalize_availability_status(availability_status)
+    if not clean_url or not is_approved_retailer_url(clean_url) or clean_price <= 0 or not _is_available_status(normalized_status):
         return None
     return {
         "id": f"offer-{hashlib.sha1(clean_url.encode('utf-8')).hexdigest()[:14]}",
@@ -688,7 +761,7 @@ def _normalize_official_offer(url, retailer, title, price, availability_status, 
         "price": clean_price,
         "url": clean_url,
         "image": image or "",
-        "shipping": availability_status or "",
+        "shipping": normalized_status,
         "source": normalize_text(retailer),
         "matchConfidence": 100,
     }
@@ -710,9 +783,6 @@ def _parse_official_retailer_product_page(url, retailer):
     offers = product_data.get("offers") or {}
     if isinstance(offers, list):
         offers = offers[0] if offers else {}
-    brand_value = product_data.get("brand")
-    if isinstance(brand_value, dict):
-        brand_value = brand_value.get("name")
 
     title = (
         product_data.get("name")
@@ -722,7 +792,7 @@ def _parse_official_retailer_product_page(url, retailer):
     title = _clean_product_title(title, retailer_key)
     if not _is_merchandise_product_title(title, final_url):
         return None
-    brand = str(brand_value or _find_supported_brand(title) or "").strip()
+    brand = _extract_brand_from_page(page_html, product_data, title=title, retailer=retailer_key)
     image = (
         product_data.get("image")
         or _extract_meta_content(page_html, "og:image")
@@ -742,8 +812,8 @@ def _parse_official_retailer_product_page(url, retailer):
     if isinstance(aggregate_rating, dict):
         rating = float(aggregate_rating.get("ratingValue") or 0)
         review_count = int(float(aggregate_rating.get("reviewCount") or 0))
-    availability = str(offers.get("availability") or "").strip()
-    availability_status = availability.rsplit("/", 1)[-1] if availability else ""
+    availability = str(offers.get("availability") or product_data.get("availability") or "").strip()
+    availability_status = _normalize_availability_status(availability)
     category = _extract_breadcrumb_category(page_html)
     product_type = normalize_product_type(category or _infer_product_type(title))
     clean_price = _extract_price(price)
@@ -772,7 +842,7 @@ def _parse_official_retailer_product_page(url, retailer):
         "website": config.get("displayName") or retailer,
         "title-href": official_offer["url"],
         "source": retailer_key,
-        "availabilityStatus": normalize_text(availability_status or "active"),
+        "availabilityStatus": availability_status,
         "merchantOffers": [official_offer],
         "merchantDomain": _source_domain(official_offer["url"]),
         "raw": {
@@ -781,6 +851,7 @@ def _parse_official_retailer_product_page(url, retailer):
             "merchantOffers": [official_offer],
             "availabilityStatus": availability_status,
             "category": category,
+            "retailerBrand": brand,
         },
         "numberOfReviews": review_count,
     }
@@ -1179,6 +1250,7 @@ def augment_official_us_retailers(retailers=None, max_urls_per_retailer=0, start
     results_summary = []
     all_products = []
     seen = set()
+    duplicate_count = 0
 
     for retailer in selected_retailers:
         config = OFFICIAL_US_RETAILERS[retailer]
@@ -1206,6 +1278,7 @@ def augment_official_us_retailers(retailers=None, max_urls_per_retailer=0, start
                     continue
                 key = build_catalog_dedupe_key(product)
                 if key in seen:
+                    duplicate_count += 1
                     continue
                 seen.add(key)
                 retailer_products.append(product)
@@ -1224,6 +1297,7 @@ def augment_official_us_retailers(retailers=None, max_urls_per_retailer=0, start
     return {
         "retailers": results_summary,
         "productsFound": len(all_products),
+        "duplicatesSkipped": duplicate_count,
         "firestore": upsert_firestore_products(all_products),
     }
 

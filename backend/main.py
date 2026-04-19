@@ -1629,10 +1629,19 @@ def _augment_us_retailers_job_config(body):
 
 def _augment_top_brands_job_config(body):
     return {
-        "brands": body.get("brands") or None,
-        "categories": body.get("categories") or None,
-        "perQueryLimit": max(1, min(int(body.get("perQueryLimit") or 25), 100)),
-        "queriesPerStep": max(1, min(int(body.get("queriesPerStep") or body.get("maxQueries") or 5), 20)),
+        "retailers": body.get("retailers") or ["sephora", "ulta"],
+        "batchSizePerRetailer": max(
+            1,
+            min(
+                int(
+                    body.get("batchSizePerRetailer")
+                    or body.get("maxUrlsPerRetailer")
+                    or body.get("perQueryLimit")
+                    or 25
+                ),
+                100,
+            ),
+        ),
     }
 
 
@@ -1675,12 +1684,12 @@ def _create_admin_job_state(kind, config):
             "retailerSummaries": {},
         })
     elif normalized_kind == "augment-top-brands":
-        state["cursor"] = {"startQueryIndex": 0}
+        state["cursor"] = {"retailerIndex": 0, "startIndex": 0}
         state["progress"].update({
-            "queriesRun": 0,
             "productsFound": 0,
             "written": 0,
-            "totalQueries": 0,
+            "retailersCompleted": 0,
+            "retailerSummaries": {},
         })
     else:
         raise ValueError(f"Unsupported job kind: {kind}")
@@ -1804,38 +1813,7 @@ def _step_augment_us_retailers_job(state):
 
 
 def _step_augment_top_brands_job(state):
-    config = state.get("config", {})
-    cursor = state.get("cursor", {})
-    result = augment_firestore_catalog_with_top_brands_slice(
-        brands=config.get("brands"),
-        categories=config.get("categories"),
-        per_query_limit=config.get("perQueryLimit") or 25,
-        start_query_index=cursor.get("startQueryIndex") or 0,
-        max_queries=config.get("queriesPerStep") or 5,
-    )
-
-    progress = state["progress"]
-    progress["stepsRun"] += 1
-    progress["queriesRun"] += int(result.get("queriesRun") or 0)
-    progress["productsFound"] += int(result.get("productsFound") or 0)
-    progress["written"] += int((result.get("firestore") or {}).get("written") or 0)
-    progress["totalQueries"] = int(result.get("totalQueries") or progress.get("totalQueries") or 0)
-
-    if result.get("finished"):
-        state["status"] = "completed"
-        state["completedAt"] = _job_now()
-    else:
-        next_query_index = int(result.get("nextQueryIndex") or 0)
-        current_query_index = int(cursor.get("startQueryIndex") or 0)
-        if next_query_index <= current_query_index:
-            state["status"] = "failed"
-            state["error"] = "Top-brand augmentation query cursor did not advance."
-        else:
-            state["status"] = "running"
-            state["cursor"] = {"startQueryIndex": next_query_index}
-
-    state["lastResult"] = result
-    return state
+    return _step_augment_us_retailers_job(state)
 
 
 def _run_admin_job_step(state):
@@ -1964,27 +1942,24 @@ async def augment_top_brands(request: Request):
     except Exception:
         body = {}
 
-    brands = body.get("brands") or None
-    categories = body.get("categories") or None
-    per_query_limit = max(1, min(int(body.get("perQueryLimit") or 40), 100))
-    start_query_index = max(0, int(body.get("startQueryIndex") or 0))
-    max_queries = max(1, min(int(body.get("maxQueries") or 0), 25)) if body.get("maxQueries") is not None else 0
+    retailers = body.get("retailers") or ["sephora", "ulta"]
+    max_urls_per_retailer = max(
+        0,
+        int(
+            body.get("maxUrlsPerRetailer")
+            or body.get("batchSizePerRetailer")
+            or body.get("perQueryLimit")
+            or 0
+        ),
+    )
+    start_index = max(0, int(body.get("startIndex") or 0))
 
     try:
-        if max_queries:
-            return augment_firestore_catalog_with_top_brands_slice(
-                brands=brands,
-                categories=categories,
-                per_query_limit=per_query_limit,
-                start_query_index=start_query_index,
-                max_queries=max_queries,
-            )
-        result = augment_firestore_catalog_with_top_brands(
-            brands=brands,
-            categories=categories,
-            per_query_limit=per_query_limit,
+        return augment_official_us_retailers(
+            retailers=retailers,
+            max_urls_per_retailer=max_urls_per_retailer,
+            start_index=start_index,
         )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
