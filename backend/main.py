@@ -914,11 +914,32 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         if len(combined) >= max_results:
             break
 
+    if web_limit > 0 and len(combined) < max_results:
+        remaining = max_results - len(combined)
+        live_results = search_web_products(q, limit=min(web_limit, remaining))
+        for product in live_results:
+            normalized_product = _search_ready_product(
+                product,
+                fallback={"id": product.get("firestore_id", "")},
+            )
+            if not normalized_product:
+                continue
+            key = (
+                _normalize_text(normalized_product.get("brand")),
+                _normalize_text(normalized_product.get("name")),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(normalized_product)
+            if len(combined) >= max_results:
+                break
+
     return _dedupe_products(combined, require_image=False)[:max_results]
 
 
 def _search_products_with_fallback(q: str, local_limit: int, web_limit: int, max_results: int = 120):
-    combined = _search_products_once(q, local_limit=local_limit, web_limit=0, max_results=max_results)
+    combined = _search_products_once(q, local_limit=local_limit, web_limit=web_limit, max_results=max_results)
     if combined or not _is_likely_brand_query(q):
         return combined
 
@@ -929,7 +950,7 @@ def _search_products_with_fallback(q: str, local_limit: int, web_limit: int, max
             _search_products_once(
                 fallback_query,
                 local_limit=max(12, local_limit // 2),
-                web_limit=0,
+                web_limit=web_limit,
                 max_results=max_results,
             )
         )
@@ -1846,7 +1867,7 @@ def search_products(q: str, limit: int = 8):
     combined = _search_products_with_fallback(
         q,
         local_limit=max(24, normalized_limit * 3),
-        web_limit=0,
+        web_limit=max(8, normalized_limit * 2),
         max_results=max(32, normalized_limit * 4),
     )
     return _cache_set(cache_key, combined[:normalized_limit])
@@ -1867,7 +1888,7 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
     combined = _search_products_with_fallback(
         q,
         local_limit=target_count,
-        web_limit=0,
+        web_limit=min(max(24, normalized_page_size * 2), target_count),
         max_results=target_count,
     )
     combined.sort(key=lambda product: _product_sort_key(product, normalized_sort))
