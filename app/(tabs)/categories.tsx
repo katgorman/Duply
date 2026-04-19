@@ -80,11 +80,6 @@ function CategoryTile({
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
         <View style={[styles.categoryOrb, dark && styles.categoryOrbDark]} />
         <View style={styles.categoryTopRow}>
-          <View style={[styles.categoryBadge, dark && styles.categoryBadgeDark]}>
-            <Text style={[styles.categoryBadgeText, dark && styles.categoryBadgeTextDark]}>
-              Open
-            </Text>
-          </View>
           {typeof category.count === 'number' ? (
             <Text style={[styles.categoryCount, dark && styles.categoryCountDark]}>
               {category.count.toLocaleString()}
@@ -470,27 +465,8 @@ const styles = StyleSheet.create({
   categoryTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: spacing.sm,
-  },
-  categoryBadge: {
-    borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  categoryBadgeDark: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  categoryBadgeText: {
-    ...typography.smallBold,
-    color: colors.primary,
-  },
-  categoryBadgeTextDark: {
-    color: colors.cream,
   },
   categoryCount: {
     ...typography.captionBold,
