@@ -36,7 +36,7 @@ import {
 
 const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
 
-function PriceMatchLoader({ showRefreshingCopy }: { showRefreshingCopy: boolean }) {
+function PriceMatchLoader() {
   const pulse = useSharedValue(0);
 
   React.useEffect(() => {
@@ -50,36 +50,12 @@ function PriceMatchLoader({ showRefreshingCopy }: { showRefreshingCopy: boolean 
     );
   }, [pulse]);
 
-  const scanStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -10 + (pulse.value * 28) }],
-    opacity: 0.35 + (pulse.value * 0.65),
-  }));
-
   const glowStyle = useAnimatedStyle(() => ({
     opacity: 0.45 + (pulse.value * 0.4),
   }));
 
-  const stages = showRefreshingCopy
-    ? ['Refreshing live offers', 'Ranking best retailers', 'Updating best price']
-    : ['Scanning live retailers', 'Comparing titles and prices', 'Ranking best offers'];
-
   return (
     <Animated.View style={[styles.priceMatchLoaderBox, glowStyle]}>
-      <View style={styles.priceMatchLoaderHeader}>
-        <View style={styles.priceMatchLoaderRail}>
-          <Animated.View style={[styles.priceMatchLoaderTrack, scanStyle]} />
-        </View>
-        <Text style={styles.priceMatchLoaderEta}>Usually a moment</Text>
-      </View>
-
-      <View style={styles.priceMatchStageRow}>
-        {stages.map(stage => (
-          <View key={stage} style={styles.priceMatchStagePill}>
-            <Text style={styles.priceMatchStageText}>{stage}</Text>
-          </View>
-        ))}
-      </View>
-
       {[0, 1, 2].map(index => (
         <View key={index} style={[styles.priceMatchSkeletonRow, index === 0 && styles.priceMatchSkeletonRowFeatured]}>
           <View style={styles.priceMatchSkeletonInfo}>
@@ -602,7 +578,7 @@ export default function ProductDetailsScreen() {
               {priceOffersError ? <Text style={styles.priceMatchError}>{priceOffersError}</Text> : null}
 
               {priceOffersLoading && priceOffers.length === 0 ? (
-                <PriceMatchLoader showRefreshingCopy={Boolean(cachedPriceOffers?.length)} />
+                <PriceMatchLoader />
               ) : null}
 
               {!priceOffersLoading && !priceOffersError && priceOffers.length === 0 ? (
@@ -1090,47 +1066,6 @@ const styles = StyleSheet.create({
   },
   priceMatchLoaderBox: {
     gap: spacing.sm,
-  },
-  priceMatchLoaderHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  priceMatchLoaderRail: {
-    width: 84,
-    height: 10,
-    borderRadius: radius.full,
-    backgroundColor: colors.cream,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    overflow: 'hidden',
-  },
-  priceMatchLoaderTrack: {
-    width: 34,
-    height: '100%',
-    backgroundColor: colors.accentDark,
-  },
-  priceMatchLoaderEta: {
-    ...typography.small,
-    color: colors.textMuted,
-  },
-  priceMatchStageRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  priceMatchStagePill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  priceMatchStageText: {
-    ...typography.small,
-    color: colors.textSecondary,
   },
   priceMatchSkeletonRow: {
     flexDirection: 'row',
