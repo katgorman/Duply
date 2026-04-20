@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { ArrowDown, ArrowLeft, Search, Star } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
@@ -9,6 +9,7 @@ import { colors, radius, shadows, spacing, typography } from '../constants/theme
 import { useProductsByCategory } from '../hooks/useProducts';
 import type { Product } from '../services/api';
 import { prefetchCategoryPage, prefetchProductsById, seedProductCache } from '../services/api';
+import { buildProductImageSource } from '../services/productImages';
 
 const EMPTY_PRODUCTS: Product[] = [];
 const DEFAULT_PAGE_SIZE = 10;
@@ -26,6 +27,7 @@ const sortOptions: { id: SortOption; label: string }[] = [
 
 export default function CategoryProductsScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ category?: string; title?: string }>();
   const category = params.category || '';
   const title = params.title || 'Category';
@@ -38,6 +40,10 @@ export default function CategoryProductsScreen() {
   const products = data?.items || EMPTY_PRODUCTS;
   const totalProducts = data?.total || 0;
   const totalPages = data?.totalPages || 1;
+  const isCompactScreen = width < 390;
+  const gridColumns = viewMode === 'grid' ? (isCompactScreen ? 1 : 2) : 1;
+  const listImageSize = isCompactScreen ? 88 : 104;
+  const gridImageHeight = isCompactScreen ? 176 : 208;
   const isInitialLoading = loading && products.length === 0;
   const isRefreshingResults = loading && products.length > 0;
   const isPageTransitionLoading = isRefreshingResults && data?.page !== page;
@@ -188,12 +194,12 @@ export default function CategoryProductsScreen() {
         </View>
       ) : (
         <FlatList
-          key={`category-products-${viewMode}`}
+          key={`category-products-${viewMode}-${gridColumns}`}
           data={products}
-          numColumns={viewMode === 'grid' ? 2 : 1}
+          numColumns={gridColumns}
           keyExtractor={item => item.id}
           contentContainerStyle={[styles.list, viewMode === 'grid' && styles.gridList]}
-          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
+          columnWrapperStyle={gridColumns > 1 ? styles.gridRow : undefined}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             isRefreshingResults ? (
@@ -205,38 +211,58 @@ export default function CategoryProductsScreen() {
               </View>
             ) : null
           }
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [
-                styles.card,
-                viewMode === 'grid' ? styles.cardGrid : styles.cardList,
-                pressed && styles.cardPressed,
-              ]}
-              onPress={() => openProduct(item.id, item.familyName || item.name)}
-            >
-              {item.image ? (
-                <Image
-                  source={{ uri: item.image }}
-                  style={[styles.image, viewMode === 'grid' && styles.imageGrid]}
-                  contentFit="cover"
-                  placeholder={{ blurhash: IMAGE_BLURHASH }}
-                  transition={220}
-                />
-              ) : (
-                <View style={[styles.image, viewMode === 'grid' && styles.imageGrid, styles.imagePlaceholder]}>
-                  <Text style={styles.placeholderText}>Image unavailable</Text>
+          renderItem={({ item }) => {
+            const imageSource = buildProductImageSource(
+              item.image,
+              viewMode === 'grid' ? gridImageHeight * 2 : listImageSize * 2,
+            );
+
+            return (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.card,
+                  viewMode === 'grid' ? styles.cardGrid : styles.cardList,
+                  pressed && styles.cardPressed,
+                ]}
+                onPress={() => openProduct(item.id, item.familyName || item.name)}
+              >
+                {imageSource ? (
+                  <Image
+                    source={imageSource}
+                    style={[
+                      styles.image,
+                      viewMode === 'grid'
+                        ? [styles.imageGrid, { height: gridImageHeight }]
+                        : { width: listImageSize, height: listImageSize },
+                    ]}
+                    contentFit="contain"
+                    placeholder={{ blurhash: IMAGE_BLURHASH }}
+                    transition={220}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.image,
+                      viewMode === 'grid'
+                        ? [styles.imageGrid, { height: gridImageHeight }]
+                        : { width: listImageSize, height: listImageSize },
+                      styles.imagePlaceholder,
+                    ]}
+                  >
+                    <Text style={styles.placeholderText}>Image unavailable</Text>
+                  </View>
+                )}
+                <View style={[styles.info, viewMode === 'grid' && styles.infoGrid]}>
+                  <Text style={styles.brand}>{item.brand}</Text>
+                  <Text style={styles.name} numberOfLines={2}>{item.familyName || item.name}</Text>
+                  <View style={[styles.metaRow, viewMode === 'grid' && styles.metaRowGrid]}>
+                    <Text style={styles.type}>{item.productType}</Text>
+                    <Text style={styles.price}>${item.price.toFixed(2)}</Text>
+                  </View>
                 </View>
-              )}
-              <View style={[styles.info, viewMode === 'grid' && styles.infoGrid]}>
-                <Text style={styles.brand}>{item.brand}</Text>
-                <Text style={styles.name} numberOfLines={2}>{item.familyName || item.name}</Text>
-                <View style={[styles.metaRow, viewMode === 'grid' && styles.metaRowGrid]}>
-                  <Text style={styles.type}>{item.productType}</Text>
-                  <Text style={styles.price}>${item.price.toFixed(2)}</Text>
-                </View>
-              </View>
-            </Pressable>
-          )}
+              </Pressable>
+            );
+          }}
           ListFooterComponent={
             totalPages > 1 ? (
               <View style={styles.pagination}>
@@ -478,7 +504,7 @@ const styles = StyleSheet.create({
   },
   cardList: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   cardGrid: {
     flex: 1,
@@ -492,6 +518,8 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: radius.lg,
     backgroundColor: colors.skeleton,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   imageGrid: {
     width: '100%',
@@ -511,7 +539,7 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
-    marginLeft: spacing.md,
+    marginLeft: spacing.lg,
   },
   infoGrid: {
     marginLeft: 0,

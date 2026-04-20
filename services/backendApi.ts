@@ -71,6 +71,8 @@ const BASE_URL = getBackendBaseUrl();
 const responseCache = new Map<string, CacheEntry<unknown>>();
 const inflightRequests = new Map<string, Promise<unknown>>();
 const MAX_CACHE_ENTRIES = 200;
+const RETRYABLE_STATUS_CODES = new Set([502, 503, 504]);
+const REQUEST_RETRY_DELAY_MS = 450;
 
 function buildCategoryCacheKey(
   category: string,
@@ -251,6 +253,75 @@ export function prefetchPriceMatchesForProduct(product: Product | null | undefin
   });
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function isRetryableRequestError(error: unknown) {
+  if (isAbortError(error)) {
+    return false;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /Backend error 50[234]/i.test(message)
+    || /Failed to fetch/i.test(message)
+    || /Network request failed/i.test(message)
+    || /Load failed/i.test(message)
+  );
+}
+
+function normalizeRequestError(error: unknown) {
+  if (error instanceof Error) {
+    if (isRetryableRequestError(error)) {
+      return new Error('The server is waking up or temporarily unavailable. Please try again.');
+    }
+    return error;
+  }
+
+  if (typeof error === 'string' && /50[234]|failed to fetch|network request failed/i.test(error)) {
+    return new Error('The server is waking up or temporarily unavailable. Please try again.');
+  }
+
+  return new Error(String(error));
+}
+
+async function fetchTextWithRetry(url: string, options?: RequestInit) {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      const text = await response.text();
+
+      if (!response.ok) {
+        const backendError = new Error(`Backend error ${response.status}: ${text}`);
+        if (attempt === 0 && RETRYABLE_STATUS_CODES.has(response.status)) {
+          lastError = backendError;
+          await sleep(REQUEST_RETRY_DELAY_MS);
+          continue;
+        }
+        throw backendError;
+      }
+
+      return text;
+    } catch (error) {
+      if (attempt === 0 && isRetryableRequestError(error)) {
+        lastError = error;
+        await sleep(REQUEST_RETRY_DELAY_MS);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to fetch');
+}
+
 async function fetchJsonWithCache<T>(url: string, options: RequestInit | undefined, cacheKey: string, ttlMs: number): Promise<T> {
   const cached = getCachedValue<T>(cacheKey);
   if (cached !== null) {
@@ -263,16 +334,14 @@ async function fetchJsonWithCache<T>(url: string, options: RequestInit | undefin
   }
 
   const request = (async () => {
-    const response = await fetch(url, options);
-    const text = await response.text();
-
-    if (!response.ok) {
-      throw new Error(`Backend error ${response.status}: ${text}`);
+    try {
+      const text = await fetchTextWithRetry(url, options);
+      const parsed = JSON.parse(text) as T;
+      setCachedValue(cacheKey, parsed, ttlMs);
+      return parsed;
+    } catch (error) {
+      throw normalizeRequestError(error);
     }
-
-    const parsed = JSON.parse(text) as T;
-    setCachedValue(cacheKey, parsed, ttlMs);
-    return parsed;
   })();
 
   inflightRequests.set(cacheKey, request);
@@ -466,7 +535,11 @@ export async function findPriceMatchesFromBackend(product: Product): Promise<Pri
     }),
   }, cacheKey, CACHE_TTL_MS.priceMatches).catch(error => {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Backend error 404') || message.includes('Backend error 405')) {
+    if (
+      message.includes('Backend error 404')
+      || message.includes('Backend error 405')
+      || message.includes('temporarily unavailable')
+    ) {
       setCachedValue(cacheKey, [], CACHE_TTL_MS.priceMatches);
       return [];
     }

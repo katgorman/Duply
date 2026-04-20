@@ -33,6 +33,7 @@ import {
   prefetchProductsById,
   seedProductCache,
 } from '../services/api';
+import { buildProductImageSource } from '../services/productImages';
 
 const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
 
@@ -126,6 +127,9 @@ export default function ProductDetailsScreen() {
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const cachedPriceOffers = getCachedPriceMatchesForProduct(original);
+  const originalImageSource = buildProductImageSource(original?.image, 720);
+  const dupeImageSource = buildProductImageSource(dupeProduct?.image, 720);
+  const previewImageSource = buildProductImageSource(previewImage, 1080);
 
   const loadData = useCallback(async () => {
     const hasCachedContent = Boolean(cachedOriginal || cachedDupe);
@@ -622,9 +626,9 @@ export default function ProductDetailsScreen() {
                 <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(original.image)}>
                   {original.image ? (
                     <Image
-                      source={{ uri: original.image }}
+                      source={originalImageSource!}
                       style={styles.productImage}
-                      contentFit="cover"
+                      contentFit="contain"
                       placeholder={{ blurhash: IMAGE_BLURHASH }}
                       transition={220}
                     />
@@ -656,9 +660,9 @@ export default function ProductDetailsScreen() {
                   <TouchableOpacity activeOpacity={0.9} onPress={() => openImagePreview(dupeProduct.image)}>
                     {dupeProduct.image ? (
                       <Image
-                        source={{ uri: dupeProduct.image }}
+                        source={dupeImageSource!}
                         style={styles.productImage}
-                        contentFit="cover"
+                        contentFit="contain"
                         placeholder={{ blurhash: IMAGE_BLURHASH }}
                         transition={220}
                       />
@@ -790,7 +794,7 @@ export default function ProductDetailsScreen() {
             </TouchableOpacity>
             {previewImage ? (
               <Image
-                source={{ uri: previewImage }}
+                source={previewImageSource!}
                 style={styles.previewImage}
                 contentFit="contain"
                 placeholder={{ blurhash: IMAGE_BLURHASH }}

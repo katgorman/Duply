@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
+import { buildProductImageSource } from '../services/productImages';
 
 const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
 
@@ -24,16 +25,18 @@ export default function ProductCard({
   originalPrice,
   onPress,
 }: ProductCardProps) {
+  const imageSource = buildProductImageSource(image, 420);
+
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       onPress={onPress}
     >
-      {image ? (
+      {imageSource ? (
         <Image
-          source={{ uri: image }}
+          source={imageSource}
           style={styles.image}
-          contentFit="cover"
+          contentFit="contain"
           placeholder={{ blurhash: IMAGE_BLURHASH }}
           transition={220}
         />

@@ -1029,7 +1029,7 @@ def _fallback_dupe_candidates(original_product, brand: str, name: str, product_t
             continue
 
     for record in source_records:
-        candidate = _coerce_to_display_product(
+        candidate = _search_ready_product(
             record,
             fallback={"id": record.get("firestore_id", "")},
             enrich_image=False,
@@ -1197,13 +1197,15 @@ def _offer_identity_key(offer):
     )
 
 
-def _normalize_price_offer(offer, brand="", name=""):
+def _normalize_price_offer(offer, brand="", name="", check_live_url=True):
     url = str(offer.get("url") or "").strip()
     title = str(offer.get("title") or f"{brand} {name}".strip()).strip()
     price = _normalize_price(offer.get("price"))
     if not url or price <= 0:
         return None
-    if not is_approved_retailer_url(url) or not is_live_product_url(url):
+    if not is_approved_retailer_url(url):
+        return None
+    if check_live_url and not is_live_product_url(url):
         return None
     return {
         "id": offer.get("id") or f"offer-{abs(hash((title, url))) % 10**12}",
@@ -1224,7 +1226,7 @@ def _catalog_price_matches(brand: str, name: str, limit: int = 12):
     query = f"{brand} {name}".strip()
 
     for record in search_firestore_products(query, limit=max(limit * 10, 40)):
-        product = _coerce_to_display_product(
+        product = _search_ready_product(
             record,
             fallback={"id": record.get("firestore_id", "")},
             enrich_image=False,
@@ -1245,7 +1247,7 @@ def _catalog_price_matches(brand: str, name: str, limit: int = 12):
             "image": product.get("image"),
             "source": record.get("source") or "catalog",
             "matchConfidence": confidence,
-        }, brand=brand, name=name)
+        }, brand=brand, name=name, check_live_url=False)
         if not normalized_offer:
             continue
 
@@ -1271,7 +1273,7 @@ def _merge_price_offers(*offer_groups, brand="", name="", limit=3):
     seen = set()
     for group in offer_groups:
         for offer in group or []:
-            normalized_offer = _normalize_price_offer(offer, brand=brand, name=name)
+            normalized_offer = _normalize_price_offer(offer, brand=brand, name=name, check_live_url=False)
             if not normalized_offer:
                 continue
             key = _offer_identity_key(normalized_offer)
@@ -2243,15 +2245,27 @@ async def get_price_matches(request: Request):
                     "matchConfidence": offer.get("matchConfidence") or 100,
                 })
         catalog_offers = _catalog_price_matches(brand, lookup_name, limit=12)
-        live_offers = find_price_matches(brand, lookup_name, product_url=product_url, limit=12)
         merged = _merge_price_offers(
             catalog_offers,
             stored_offers,
-            live_offers,
             brand=brand,
             name=lookup_name,
             limit=3,
         )
+        if len(merged) < 3:
+            try:
+                live_offers = find_price_matches(brand, lookup_name, product_url=product_url, limit=12)
+            except Exception as exc:
+                print("Live price match lookup failed:", str(exc))
+                live_offers = []
+            merged = _merge_price_offers(
+                catalog_offers,
+                stored_offers,
+                live_offers,
+                brand=brand,
+                name=lookup_name,
+                limit=3,
+            )
         if not merged:
             fallback_offer = _catalog_url_fallback_offer(
                 product,
@@ -2336,7 +2350,7 @@ async def get_dupes(request: Request):
                     "id": original_firestore.get("firestore_id", ""),
                     "image": image,
                 },
-                enrich_image=True,
+                enrich_image=False,
             )
             original = _finalize_product(original, require_image=False)
         else:
@@ -2359,8 +2373,6 @@ async def get_dupes(request: Request):
                 "skinType": "",
                 "raw": {},
             }, require_image=False)
-        original = _resolve_live_product(original) or original
-        original = _ensure_product_image(original)
 
         if not original:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -2387,11 +2399,9 @@ async def get_dupes(request: Request):
                     "id": ranked_record.get("firestore_id", ""),
                     "image": "",
                 },
-                enrich_image=True,
+                enrich_image=False,
             )
             dupe = _finalize_product(dupe, require_image=False)
-            dupe = _resolve_live_product(dupe) or dupe
-            dupe = _ensure_product_image(dupe)
             if not dupe:
                 continue
             if _is_same_product_family_variant(original_firestore or original, firestore_record or dupe_source):

@@ -7,7 +7,22 @@ METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
 MODEL_DIR = BASE_DIR / "cosmetics_dupe_model"
 INDEX_PATH = BASE_DIR / "cosmetics_index.faiss"
 
-MODEL_MODE = os.getenv("DUPLY_MODEL_MODE", "auto").strip().lower()
+
+def _default_model_mode():
+    explicit_mode = os.getenv("DUPLY_MODEL_MODE", "").strip().lower()
+    if explicit_mode:
+        return explicit_mode
+
+    # Render's smaller instances can restart when the local transformer model is
+    # loaded on demand. Favor the metadata fallback there unless explicitly
+    # opted back into the local model.
+    if os.getenv("RENDER"):
+        return "disabled"
+
+    return "auto"
+
+
+MODEL_MODE = _default_model_mode()
 
 _products = None
 _model = None

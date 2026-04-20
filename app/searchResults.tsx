@@ -2,16 +2,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, {
-  Easing,
-  FadeInRight,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadows, spacing, typography } from '../constants/theme';
 import { usePreferences } from '../hooks/usePreferences';
@@ -22,59 +13,129 @@ import {
   getCachedDupesForProduct,
   getCachedProductById,
   prefetchDupesForProduct,
-  prefetchPriceMatchesForProduct,
   prefetchProductById,
   prefetchProductsById,
   seedProductCache,
 } from '../services/api';
+import { buildProductImageSource } from '../services/productImages';
 
 const IMAGE_BLURHASH = 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH';
 
-function DupeLoader() {
-  const pulse = useSharedValue(0);
+type DupeStage = 'resolving' | 'matching' | 'finalizing';
 
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 700, easing: Easing.out(Easing.ease) }),
-        withTiming(0, { duration: 700, easing: Easing.in(Easing.ease) }),
-      ),
-      -1,
-      false,
-    );
-  }, [pulse]);
+const DUPE_STAGE_ORDER: DupeStage[] = ['resolving', 'matching', 'finalizing'];
 
-  const sweepStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -18 + (pulse.value * 36) }],
-    opacity: 0.35 + (pulse.value * 0.65),
-  }));
+const DUPE_STAGE_COPY: Record<DupeStage, { badge: string; title: string; description: string }> = {
+  resolving: {
+    badge: 'Loading source',
+    title: 'Pulling in the source product',
+    description: 'We are locking onto the product you picked so the dupe rank starts from the right item.',
+  },
+  matching: {
+    badge: 'Scoring matches',
+    title: 'Comparing the catalog',
+    description: 'We are scoring similar formulas, shades, and pricing so the strongest dupes bubble up first.',
+  },
+  finalizing: {
+    badge: 'Finalizing list',
+    title: 'Wrapping up the shortlist',
+    description: 'We are sorting the best matches and getting the list ready for browsing.',
+  },
+};
 
-  const shimmerStyle = useAnimatedStyle(() => ({
-    opacity: 0.42 + (pulse.value * 0.3),
-  }));
+function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean) {
+  return items.filter(item => (
+    showHigherPricedMatches
+      ? true
+      : item.dupe.price <= item.original.price
+  ));
+}
+
+function DupeLoader({
+  sourceProduct,
+  fallbackName,
+  stage,
+  compact,
+}: {
+  sourceProduct: Product | null;
+  fallbackName?: string;
+  stage: DupeStage;
+  compact: boolean;
+}) {
+  const stageCopy = DUPE_STAGE_COPY[stage];
+  const activeStageIndex = DUPE_STAGE_ORDER.indexOf(stage);
+  const sourceImageSource = buildProductImageSource(sourceProduct?.image, 520);
+  const sourceTitle = sourceProduct?.familyName || sourceProduct?.name || fallbackName || 'Finding your product';
 
   return (
     <View style={styles.loadingExperience}>
-      <View style={styles.loadingBadge}>
-        <Animated.View style={[styles.loadingBadgeDot, sweepStyle]} />
-        <Text style={styles.loadingBadgeText}>Matching product attributes</Text>
-      </View>
-      <Text style={styles.loadingTitle}>Finding dupes</Text>
-      <Text style={styles.loadingSubtitle}>Comparing the source product against the catalog and ranking the best matches.</Text>
-      <View style={styles.loadingStageRow}>
-        {['Reading source product', 'Scoring lookalikes', 'Ranking best matches'].map(stage => (
-          <View key={stage} style={styles.loadingStagePill}>
-            <Text style={styles.loadingStageText}>{stage}</Text>
+      <View style={[styles.loadingHeroCard, compact && styles.loadingHeroCardCompact]}>
+        {sourceImageSource ? (
+          <Image
+            source={sourceImageSource}
+            style={[styles.loadingHeroImage, compact && styles.loadingHeroImageCompact]}
+            contentFit="contain"
+            placeholder={{ blurhash: IMAGE_BLURHASH }}
+            transition={180}
+          />
+        ) : (
+          <View style={[styles.loadingHeroImage, compact && styles.loadingHeroImageCompact, styles.imagePlaceholder]}>
+            <Text style={styles.imagePlaceholderText}>Preparing item</Text>
           </View>
-        ))}
+        )}
+        <View style={styles.loadingHeroCopy}>
+          <Text style={styles.loadingEyebrow}>Building your dupe list</Text>
+          <Text style={styles.loadingTitle}>{sourceTitle}</Text>
+          <Text style={styles.loadingSubtitle}>{stageCopy.title}</Text>
+          <Text style={styles.loadingBody}>{stageCopy.description}</Text>
+        </View>
       </View>
+
+      <View style={styles.loadingStatusPill}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.loadingStatusText}>{stageCopy.badge}</Text>
+      </View>
+
+      <View style={styles.loadingTimeline}>
+        {DUPE_STAGE_ORDER.map((step, index) => {
+          const isActive = index === activeStageIndex;
+          const isComplete = index < activeStageIndex;
+          return (
+            <View
+              key={step}
+              style={[
+                styles.loadingTimelineStep,
+                isActive && styles.loadingTimelineStepActive,
+                isComplete && styles.loadingTimelineStepComplete,
+              ]}
+            >
+              <View
+                style={[
+                  styles.loadingTimelineDot,
+                  isActive && styles.loadingTimelineDotActive,
+                  isComplete && styles.loadingTimelineDotComplete,
+                ]}
+              />
+              <Text
+                style={[
+                  styles.loadingTimelineText,
+                  isActive && styles.loadingTimelineTextActive,
+                  isComplete && styles.loadingTimelineTextComplete,
+                ]}
+              >
+                {DUPE_STAGE_COPY[step].badge}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
       {[0, 1, 2].map(index => (
-        <Animated.View
+        <View
           key={index}
           style={[
             styles.loadingCard,
             index === 0 && styles.loadingCardFeatured,
-            shimmerStyle,
           ]}
         >
           <View style={styles.loadingImage} />
@@ -87,7 +148,7 @@ function DupeLoader() {
             <View style={[styles.loadingLine, styles.loadingPriceLine]} />
             <View style={[styles.loadingLine, styles.loadingSavingsLine]} />
           </View>
-        </Animated.View>
+        </View>
       ))}
     </View>
   );
@@ -95,16 +156,24 @@ function DupeLoader() {
 
 export default function SearchResultsScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ q?: string; productId?: string; productName?: string }>();
   const cachedSourceProduct = params.productId ? getCachedProductById(params.productId) : null;
   const cachedDupes = getCachedDupesForProduct(cachedSourceProduct);
+  const { showHigherPricedMatches } = usePreferences();
+  const initialCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches);
 
-  const [dupes, setDupes] = useState<Dupe[]>(cachedDupes || []);
+  const [dupes, setDupes] = useState<Dupe[]>(initialCachedDupes);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [loading, setLoading] = useState(!cachedDupes);
+  const [loading, setLoading] = useState(initialCachedDupes.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [sourceProduct, setSourceProduct] = useState<Product | null>(cachedSourceProduct);
-  const { showHigherPricedMatches } = usePreferences();
+  const [dupeStage, setDupeStage] = useState<DupeStage>(cachedSourceProduct ? 'matching' : 'resolving');
+  const isCompactScreen = width < 390;
+  const gridColumns = viewMode === 'grid' ? (isCompactScreen ? 1 : 2) : 1;
+  const listImageSize = isCompactScreen ? 92 : 112;
+  const gridImageHeight = isCompactScreen ? 188 : 228;
+  const sourceSummaryImageSource = buildProductImageSource(sourceProduct?.image, 520);
   const isInitialLoading = loading && dupes.length === 0;
   const isRefreshingResults = loading && dupes.length > 0;
 
@@ -112,11 +181,16 @@ export default function SearchResultsScreen() {
     setLoading(true);
     setError(null);
     try {
-      let product: Product | null = null;
+      let product: Product | null = cachedSourceProduct ?? null;
 
-      if (params.productId) {
+      if (product) {
+        setSourceProduct(prev => prev || product);
+        setDupeStage('matching');
+      } else if (params.productId) {
+        setDupeStage('resolving');
         product = await dataService.getProductById(params.productId);
       } else if (params.q) {
+        setDupeStage('resolving');
         const results = await dataService.searchProducts(params.q);
         product = results[0] ?? null;
       }
@@ -128,21 +202,16 @@ export default function SearchResultsScreen() {
       }
 
       setSourceProduct(product);
-      prefetchPriceMatchesForProduct(product);
+      setDupeStage('matching');
       const foundDupes = await dataService.findDupes(product);
-      setDupes(
-        foundDupes.filter(item => (
-          showHigherPricedMatches
-            ? true
-            : item.dupe.price <= item.original.price
-        ))
-      );
+      setDupeStage('finalizing');
+      setDupes(filterVisibleDupes(foundDupes, showHigherPricedMatches));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [params.productId, params.q, showHigherPricedMatches]);
+  }, [cachedSourceProduct, params.productId, params.q, showHigherPricedMatches]);
 
   useEffect(() => {
     loadDupes();
@@ -151,35 +220,39 @@ export default function SearchResultsScreen() {
   useEffect(() => {
     if (cachedSourceProduct) {
       setSourceProduct(prev => prev || cachedSourceProduct);
-      if (cachedDupes?.length) {
-        setDupes(prev => prev.length > 0 ? prev : cachedDupes);
+      const nextCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches);
+      if (nextCachedDupes.length) {
+        setDupes(nextCachedDupes);
       } else {
+        setDupeStage('matching');
         prefetchDupesForProduct(cachedSourceProduct);
       }
     }
-  }, [cachedDupes, cachedSourceProduct]);
+  }, [cachedDupes, cachedSourceProduct, showHigherPricedMatches]);
 
   useEffect(() => {
     if (sourceProduct) {
       seedProductCache(sourceProduct);
       prefetchProductById(sourceProduct.id);
       prefetchDupesForProduct(sourceProduct);
-      prefetchPriceMatchesForProduct(sourceProduct);
     }
-    dupes.forEach(item => {
+    dupes.slice(0, 4).forEach(item => {
       seedProductCache(item.original);
       seedProductCache(item.dupe);
     });
     prefetchProductsById([
-      ...dupes.flatMap(item => [item.original.id, item.dupe.id]),
+      ...dupes.slice(0, 4).flatMap(item => [item.original.id, item.dupe.id]),
     ]);
   }, [dupes, sourceProduct]);
 
-  const renderItem = ({ item, index }: { item: Dupe; index: number }) => {
+  const renderItem = ({ item }: { item: Dupe }) => {
     const callout = getDupeCallout(item);
+    const imageSource = buildProductImageSource(
+      item.dupe.image,
+      viewMode === 'grid' ? gridImageHeight * 2 : listImageSize * 2,
+    );
 
     return (
-      <Animated.View entering={FadeInRight.delay(index * 80).duration(400)}>
       <TouchableOpacity
         style={[styles.card, viewMode === 'grid' ? styles.cardGrid : styles.cardList]}
         activeOpacity={0.7}
@@ -196,16 +269,29 @@ export default function SearchResultsScreen() {
           })
         }
       >
-        {item.dupe.image ? (
+        {imageSource ? (
           <Image
-            source={{ uri: item.dupe.image }}
-            style={[styles.imageBox, viewMode === 'grid' && styles.imageBoxGrid]}
-            contentFit="cover"
+            source={imageSource}
+            style={[
+              styles.imageBox,
+              viewMode === 'grid'
+                ? [styles.imageBoxGrid, { height: gridImageHeight }]
+                : { width: listImageSize, height: listImageSize },
+            ]}
+            contentFit="contain"
             placeholder={{ blurhash: IMAGE_BLURHASH }}
             transition={220}
           />
         ) : (
-          <View style={[styles.imageBox, viewMode === 'grid' && styles.imageBoxGrid, styles.imagePlaceholder]}>
+          <View
+            style={[
+              styles.imageBox,
+              viewMode === 'grid'
+                ? [styles.imageBoxGrid, { height: gridImageHeight }]
+                : { width: listImageSize, height: listImageSize },
+              styles.imagePlaceholder,
+            ]}
+          >
             <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
           </View>
         )}
@@ -237,7 +323,6 @@ export default function SearchResultsScreen() {
           <Text style={styles.savingsText}>{callout.savingsText}</Text>
         </View>
       </TouchableOpacity>
-      </Animated.View>
     );
   };
 
@@ -260,13 +345,33 @@ export default function SearchResultsScreen() {
 
       {sourceProduct ? (
         <View style={styles.sourceSummaryCard}>
-          <Text style={styles.sourceSummaryEyebrow}>Source Product</Text>
-          <Text style={styles.sourceSummaryTitle}>{sourceProduct.brand} {sourceProduct.familyName || sourceProduct.name}</Text>
-          <Text style={styles.sourceSummaryBody}>
-            {showHigherPricedMatches
-              ? 'Showing all ranked matches, including premium alternatives.'
-              : 'Showing dupes priced at or below the source product by default.'}
-          </Text>
+          <View style={[styles.sourceSummaryTopRow, isCompactScreen && styles.sourceSummaryTopRowCompact]}>
+            {sourceSummaryImageSource ? (
+              <Image
+                source={sourceSummaryImageSource}
+                style={[styles.sourceSummaryImage, isCompactScreen && styles.sourceSummaryImageCompact]}
+                contentFit="contain"
+                placeholder={{ blurhash: IMAGE_BLURHASH }}
+                transition={180}
+              />
+            ) : (
+              <View style={[styles.sourceSummaryImage, isCompactScreen && styles.sourceSummaryImageCompact, styles.imagePlaceholder]}>
+                <Text style={styles.imagePlaceholderText}>Image unavailable</Text>
+              </View>
+            )}
+            <View style={styles.sourceSummaryCopy}>
+              <Text style={styles.sourceSummaryEyebrow}>Source Product</Text>
+              <Text style={styles.sourceSummaryTitle}>{sourceProduct.brand} {sourceProduct.familyName || sourceProduct.name}</Text>
+              <Text style={styles.sourceSummaryMeta}>
+                {sourceProduct.productType} - ${sourceProduct.price.toFixed(2)}
+              </Text>
+              <Text style={styles.sourceSummaryBody}>
+                {showHigherPricedMatches
+                  ? 'Showing all ranked matches, including premium alternatives.'
+                  : 'Showing dupes priced at or below the source product by default.'}
+              </Text>
+            </View>
+          </View>
         </View>
       ) : null}
 
@@ -290,7 +395,12 @@ export default function SearchResultsScreen() {
 
       {isInitialLoading ? (
         <View style={styles.loadingContainer}>
-          <DupeLoader />
+          <DupeLoader
+            sourceProduct={sourceProduct}
+            fallbackName={params.productName || params.q}
+            stage={dupeStage}
+            compact={isCompactScreen}
+          />
         </View>
       ) : error ? (
         <View style={styles.centerMessage}>
@@ -306,13 +416,13 @@ export default function SearchResultsScreen() {
         </View>
       ) : (
         <FlatList
-          key={`dupes-${viewMode}`}
+          key={`dupes-${viewMode}-${gridColumns}`}
           data={dupes}
-          numColumns={viewMode === 'grid' ? 2 : 1}
+          numColumns={gridColumns}
           keyExtractor={item => item.id}
           renderItem={renderItem}
           contentContainerStyle={[styles.list, viewMode === 'grid' && styles.gridList]}
-          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
+          columnWrapperStyle={gridColumns > 1 ? styles.gridRow : undefined}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             isRefreshingResults ? (
@@ -368,52 +478,114 @@ const styles = StyleSheet.create({
   loadingExperience: {
     gap: spacing.md,
   },
-  loadingBadge: {
-    alignSelf: 'flex-start',
+  loadingHeroCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 2,
     borderColor: colors.primary,
-    backgroundColor: colors.accentLight,
-    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    ...shadows.sm,
   },
-  loadingBadgeDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.accentDark,
+  loadingHeroCardCompact: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
-  loadingBadgeText: {
+  loadingHeroImage: {
+    width: 92,
+    height: 92,
+    borderRadius: radius.lg,
+    backgroundColor: colors.skeleton,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  loadingHeroImageCompact: {
+    width: '100%',
+    height: 180,
+  },
+  loadingHeroCopy: {
+    flex: 1,
+  },
+  loadingEyebrow: {
     ...typography.smallBold,
-    color: colors.primary,
+    color: colors.accentDark,
+    textTransform: 'uppercase',
   },
   loadingTitle: {
     ...typography.h3,
     color: colors.primary,
+    marginTop: spacing.xs,
   },
   loadingSubtitle: {
     ...typography.caption,
     color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
-  loadingStageRow: {
+  loadingBody: {
+    ...typography.small,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 18,
+  },
+  loadingStatusPill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-    flexWrap: 'wrap',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.accentLight,
   },
-  loadingStagePill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+  loadingStatusText: {
+    ...typography.smallBold,
+    color: colors.primary,
+  },
+  loadingTimeline: {
+    gap: spacing.sm,
+  },
+  loadingTimelineStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  loadingStageText: {
+  loadingTimelineStepActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.accentLight,
+  },
+  loadingTimelineStepComplete: {
+    borderColor: colors.primary,
+  },
+  loadingTimelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+  },
+  loadingTimelineDotActive: {
+    backgroundColor: colors.accent,
+  },
+  loadingTimelineDotComplete: {
+    backgroundColor: colors.primary,
+  },
+  loadingTimelineText: {
     ...typography.small,
+    color: colors.textMuted,
+  },
+  loadingTimelineTextActive: {
+    color: colors.primary,
+  },
+  loadingTimelineTextComplete: {
     color: colors.textSecondary,
   },
   loadingCard: {
@@ -484,6 +656,30 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     ...shadows.sm,
   },
+  sourceSummaryTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  sourceSummaryTopRowCompact: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  sourceSummaryImage: {
+    width: 92,
+    height: 92,
+    borderRadius: radius.lg,
+    backgroundColor: colors.skeleton,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sourceSummaryImageCompact: {
+    width: '100%',
+    height: 180,
+  },
+  sourceSummaryCopy: {
+    flex: 1,
+  },
   sourceSummaryEyebrow: {
     ...typography.smallBold,
     color: colors.accentDark,
@@ -493,6 +689,12 @@ const styles = StyleSheet.create({
     ...typography.bodyBold,
     color: colors.primary,
     marginTop: spacing.xs,
+  },
+  sourceSummaryMeta: {
+    ...typography.smallBold,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+    textTransform: 'capitalize',
   },
   sourceSummaryBody: {
     ...typography.caption,
@@ -589,7 +791,7 @@ const styles = StyleSheet.create({
   },
   cardList: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   cardGrid: {
     flex: 1,
@@ -599,6 +801,8 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: radius.md,
     backgroundColor: colors.skeleton,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   imageBoxGrid: {
     width: '100%',
@@ -618,7 +822,7 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
-    marginHorizontal: spacing.md,
+    marginHorizontal: spacing.lg,
   },
   infoGrid: {
     marginHorizontal: 0,
