@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadows, spacing, typography } from '../constants/theme';
 
-const HIDDEN_PATHS = new Set(['/', '/profile']);
+const HIDDEN_PATHS = new Set(['/', '/profile', '/productDetails']);
 
 export default function GlobalBetaBadge() {
   const pathname = usePathname();

@@ -78,7 +78,7 @@ export interface CategoryProductsPage {
 }
 
 export interface DataService {
-  searchProducts(query: string, options?: { limit?: number }): Promise<Product[]>;
+  searchProducts(query: string, options?: { limit?: number; signal?: AbortSignal }): Promise<Product[]>;
   searchProductsPage(query: string, options?: { page?: number; pageSize?: number; sort?: string }): Promise<CategoryProductsPage>;
   getProductsByCategory(category: string, options?: { page?: number; pageSize?: number; query?: string; sort?: string }): Promise<CategoryProductsPage>;
   getProductById(id: string): Promise<Product | null>;

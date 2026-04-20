@@ -134,7 +134,7 @@ db = _init_firestore()
 PRODUCTS_COLLECTION = os.getenv("FIRESTORE_PRODUCTS_COLLECTION", "beauty_products")
 WEB_CACHE_COLLECTION = os.getenv("FIRESTORE_WEB_CACHE_COLLECTION", "web_query_cache")
 ADMIN_JOB_CACHE_KIND = "admin-job-state"
-CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "900"))
+CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "21600"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
 WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
 _search_cache = {}
@@ -811,7 +811,7 @@ def _indexed_search_candidates(query_tokens):
 
         prefix_matches = _catalog_search_prefix_index.get(token)
         if not prefix_matches:
-            return None
+            return []
 
         token_ids = set(prefix_matches)
         candidate_ids = token_ids if candidate_ids is None else (candidate_ids & token_ids)
@@ -1171,10 +1171,16 @@ def _product_identity_key(product):
 def _load_catalog_products(force_refresh=False):
     global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at
 
+    cache_is_fresh = (
+        _catalog_products is not None
+        and (
+            CACHE_TTL_SECONDS <= 0
+            or (time.time() - _catalog_cache_loaded_at) <= CACHE_TTL_SECONDS
+        )
+    )
     if (
         not force_refresh
-        and _catalog_products is not None
-        and (time.time() - _catalog_cache_loaded_at) <= CACHE_TTL_SECONDS
+        and cache_is_fresh
     ):
         return _catalog_products
 

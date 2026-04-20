@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import hashlib
 import re
@@ -64,6 +65,8 @@ def _warm_catalog_on_startup():
 RESPONSE_CACHE_TTL_SECONDS = 300
 ADMIN_JOB_DEFAULT_MAX_STEPS = 1
 ADMIN_JOB_MAX_STEPS_LIMIT = 25
+SEARCH_LIVE_FALLBACK_MODE = (os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MODE", "when-empty").strip().lower() or "when-empty")
+SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS = max(0, int(os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS", "0")))
 _response_cache = {}
 
 
@@ -87,6 +90,25 @@ def _cache_set(key, value):
 
 def _clear_response_cache():
     _response_cache.clear()
+
+
+def _resolved_search_web_limit(requested_web_limit: int, local_result_count: int) -> int:
+    normalized_limit = max(0, int(requested_web_limit or 0))
+    if normalized_limit <= 0:
+        return 0
+
+    mode = SEARCH_LIVE_FALLBACK_MODE
+    if mode in {"disabled", "off", "false", "0"}:
+        return 0
+    if mode in {"always", "on", "true", "1"}:
+        return normalized_limit
+    if mode in {"when-empty", "empty-only"}:
+        return normalized_limit if local_result_count <= SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS else 0
+    if mode in {"when-sparse", "sparse"}:
+        sparse_threshold = max(SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS, max(1, normalized_limit // 2))
+        return normalized_limit if local_result_count <= sparse_threshold else 0
+
+    return normalized_limit if local_result_count <= SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS else 0
 
 
 def _cache_get_search_candidates(query, local_limit, web_limit, max_results):
@@ -1120,9 +1142,10 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         if len(combined) >= max_results:
             break
 
-    if web_limit > 0 and len(combined) < max_results:
+    resolved_web_limit = _resolved_search_web_limit(web_limit, len(combined))
+    if resolved_web_limit > 0 and len(combined) < max_results:
         remaining = max_results - len(combined)
-        live_results = search_web_products(q, limit=min(web_limit, remaining))
+        live_results = search_web_products(q, limit=min(resolved_web_limit, remaining))
         for product in live_results:
             normalized_product = _search_ready_product(
                 product,

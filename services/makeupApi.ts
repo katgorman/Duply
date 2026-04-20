@@ -72,7 +72,7 @@ async function loadFeaturedDupesFromBackend(): Promise<Dupe[]> {
 }
 
 export const makeupApiService: DataService = {
-  async searchProducts(query: string, options?: { limit?: number }): Promise<Product[]> {
+  async searchProducts(query: string, options?: { limit?: number; signal?: AbortSignal }): Promise<Product[]> {
     return searchProductsFromBackend(query, options);
   },
 

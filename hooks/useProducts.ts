@@ -5,8 +5,6 @@ import {
   getCachedCategoryPage,
   getCachedSearchResults,
   getCachedSearchProductsPage,
-  prefetchProductsById,
-  prefetchSearchProductsPage,
 } from '../services/api';
 
 interface AsyncState<T> {
@@ -119,11 +117,21 @@ export function useSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
   const cacheRef = useRef(new Map<string, Product[]>());
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const search = useCallback((query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
+    abortRef.current = null;
 
     const trimmedQuery = query.trim();
     const requestId = requestIdRef.current + 1;
@@ -164,25 +172,34 @@ export function useSearch() {
 
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
-        const data = await dataService.searchProducts(trimmedQuery, { limit: 8 });
+        const data = await dataService.searchProducts(trimmedQuery, {
+          limit: 8,
+          signal: controller.signal,
+        });
 
         if (requestId !== requestIdRef.current) return;
 
-        prefetchProductsById(data.slice(0, 4).map(product => product.id));
-        prefetchSearchProductsPage(trimmedQuery, { page: 1, pageSize: 10, sort: 'popular' });
         cacheRef.current.set(normalizedQuery, data);
         setResults(data);
         setError(null);
       } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          return;
+        }
         if (requestId !== requestIdRef.current) return;
         setError(err.message);
       } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
         if (requestId === requestIdRef.current) {
           setLoading(false);
         }
       }
-    }, 120);
+    }, 250);
   }, []);
 
   return { results, loading, error, search };

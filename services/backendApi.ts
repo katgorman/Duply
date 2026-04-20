@@ -344,14 +344,22 @@ function normalizeRawCategoryPage(
   return parsed;
 }
 
-export async function searchProductsFromBackend(query: string, options: { limit?: number } = {}): Promise<Product[]> {
+export async function searchProductsFromBackend(
+  query: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<Product[]> {
   const trimmed = query.trim().toLowerCase();
   const params = new URLSearchParams({
     q: query,
     limit: String(options.limit || 8),
   });
   const url = `${BASE_URL}/products/search?${params.toString()}`;
-  const products = await fetchJsonWithCache<Product[]>(url, undefined, `search:${trimmed}:${options.limit || 8}`, CACHE_TTL_MS.search);
+  const products = await fetchJsonWithCache<Product[]>(
+    url,
+    options.signal ? { signal: options.signal } : undefined,
+    `search:${trimmed}:${options.limit || 8}`,
+    CACHE_TTL_MS.search,
+  );
   seedProductsCache(products);
   return products;
 }
