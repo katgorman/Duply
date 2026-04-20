@@ -31,7 +31,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 
 <div class="card" id="card-status">
 <h2>System Status</h2>
-<button onclick="checkStatus()">Refresh Status</button>
+<button onclick="checkStatus(this)">Refresh Status</button>
 <pre class="status" id="status-out"></pre>
 </div>
 
@@ -41,7 +41,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <div class="row">
   <label>Batch size</label>
   <input type="number" id="recat-batch" value="200" min="10" max="500">
-  <button onclick="startJob('recat-catalog','recat')">Start Recat Job</button>
+  <button onclick="startJob(this, 'recat-catalog', 'recat')">Start Recat Job</button>
 </div>
 <div class="row" id="recat-job-row" style="display:none">
   <span id="recat-badge" class="badge"></span>
@@ -57,7 +57,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <div class="row">
   <label>Batch/retailer</label>
   <input type="number" id="aug-batch" value="100" min="10" max="500">
-  <button onclick="startJob('augment-us-retailers','aug')">Start Augment Job</button>
+  <button onclick="startJob(this, 'augment-us-retailers', 'aug')">Start Augment Job</button>
 </div>
 <div class="row" id="aug-job-row" style="display:none">
   <span id="aug-badge" class="badge"></span>
@@ -103,27 +103,26 @@ function setProgress(prefix, state) {
   }
 }
 
-async function checkStatus() {
-  const btn = event.target;
-  btn.disabled = true;
+async function checkStatus(btn) {
+  if (btn) btn.disabled = true;
   try {
     const response = await fetch(BASE + '/admin/status');
-    show('status-out', await response.json());
+    const payload = await response.json();
+    show('status-out', response.ok ? payload : { error: payload });
   } catch (error) {
     show('status-out', 'Error: ' + error.message);
   }
-  btn.disabled = false;
+  if (btn) btn.disabled = false;
 }
 
-async function startJob(kind, prefix) {
+async function startJob(btn, kind, prefix) {
   const batchInput = document.getElementById(prefix === 'recat' ? 'recat-batch' : 'aug-batch');
   const batch = parseInt(batchInput.value, 10) || 100;
   const body = kind === 'recat-catalog'
     ? { kind, batchSize: batch }
     : { kind, batchSizePerRetailer: batch };
 
-  const btn = event.target;
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   try {
     const response = await fetch(BASE + '/admin/jobs', {
       method: 'POST',
@@ -131,6 +130,9 @@ async function startJob(kind, prefix) {
       body: JSON.stringify(body),
     });
     const state = await response.json();
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Failed to create job');
+    }
     jobs[prefix] = state.jobId;
     document.getElementById(prefix + '-job-row').style.display = 'flex';
     document.getElementById(prefix + '-run-btn').disabled = false;
@@ -140,7 +142,7 @@ async function startJob(kind, prefix) {
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
   }
-  btn.disabled = false;
+  if (btn) btn.disabled = false;
 }
 
 async function advanceJob(prefix) {
