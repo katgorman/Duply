@@ -89,6 +89,28 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function parseApiResponse(response, fallbackMessage) {
+  const rawText = await response.text();
+  let payload = null;
+
+  try {
+    payload = rawText ? JSON.parse(rawText) : null;
+  } catch (error) {
+    payload = {
+      error: fallbackMessage,
+      status: response.status,
+      bodyPreview: (rawText || '').slice(0, 300),
+    };
+  }
+
+  if (!response.ok) {
+    const detail = payload?.detail || payload?.error || fallbackMessage || `Request failed (${response.status})`;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+
+  return payload;
+}
+
 function show(id, text) {
   const el = document.getElementById(id);
   el.style.display = 'block';
@@ -136,8 +158,8 @@ async function checkStatus(btn) {
   if (btn) btn.disabled = true;
   try {
     const response = await fetch(BASE + '/admin/status');
-    const payload = await response.json();
-    show('status-out', response.ok ? payload : { error: payload });
+    const payload = await parseApiResponse(response, 'Failed to load status');
+    show('status-out', payload);
   } catch (error) {
     show('status-out', 'Error: ' + error.message);
   }
@@ -158,10 +180,7 @@ async function startJob(btn, kind, prefix) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const state = await response.json();
-    if (!response.ok) {
-      throw new Error(state?.detail || state?.error || 'Failed to create job');
-    }
+    const state = await parseApiResponse(response, 'Failed to create job');
     rememberJob(prefix, state);
     await autoRunJob(prefix);
   } catch (error) {
@@ -178,12 +197,9 @@ async function advanceJob(prefix) {
     const response = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 8 }),
+      body: JSON.stringify({ maxSteps: 2 }),
     });
-    const state = await response.json();
-    if (!response.ok) {
-      throw new Error(state?.detail || state?.error || 'Failed to run job');
-    }
+    const state = await parseApiResponse(response, 'Failed to run job');
     rememberJob(prefix, state);
     if (state.status === 'running') {
       setRunButton(prefix, 'Resume', false);
@@ -218,10 +234,7 @@ async function pollJob() {
   try {
     show('job-poll-out', 'Loading...');
     const response = await fetch(BASE + '/admin/jobs/' + id);
-    const state = await response.json();
-    if (!response.ok) {
-      throw new Error(state?.detail || state?.error || 'Job not found');
-    }
+    const state = await parseApiResponse(response, 'Job not found');
     show('job-poll-out', state);
 
     const prefix = JOB_PREFIX_BY_KIND[state.kind];
