@@ -337,13 +337,17 @@ export default function SearchResultsScreen() {
             {sourceProduct?.familyName || sourceProduct?.name || params.productName || params.q || 'Results'}
           </Text>
           <Text style={styles.headerSub}>
-            {loading && dupes.length > 0 ? 'Refreshing dupes...' : `${dupes.length} dupes ready to compare`}
+            {isInitialLoading
+              ? 'Finding the best dupes...'
+              : loading && dupes.length > 0
+                ? 'Refreshing dupes...'
+                : `${dupes.length} dupes ready to compare`}
           </Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
 
-      {sourceProduct ? (
+      {!isInitialLoading && sourceProduct ? (
         <View style={styles.sourceSummaryCard}>
           <View style={[styles.sourceSummaryTopRow, isCompactScreen && styles.sourceSummaryTopRowCompact]}>
             {sourceSummaryImageSource ? (
@@ -375,23 +379,25 @@ export default function SearchResultsScreen() {
         </View>
       ) : null}
 
-      <View style={styles.viewModeWrap}>
-        {(['list', 'grid'] as const).map(mode => {
-          const active = viewMode === mode;
-          return (
-            <TouchableOpacity
-              key={mode}
-              onPress={() => setViewMode(mode)}
-              style={[styles.viewModeChip, active && styles.viewModeChipActive]}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.viewModeChipText, active && styles.viewModeChipTextActive]}>
-                {mode === 'list' ? 'List View' : 'Grid View'}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {!isInitialLoading && dupes.length > 0 ? (
+        <View style={styles.viewModeWrap}>
+          {(['list', 'grid'] as const).map(mode => {
+            const active = viewMode === mode;
+            return (
+              <TouchableOpacity
+                key={mode}
+                onPress={() => setViewMode(mode)}
+                style={[styles.viewModeChip, active && styles.viewModeChipActive]}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.viewModeChipText, active && styles.viewModeChipTextActive]}>
+                  {mode === 'list' ? 'List View' : 'Grid View'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
 
       {isInitialLoading ? (
         <View style={styles.loadingContainer}>
@@ -472,8 +478,9 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   loadingExperience: {
     gap: spacing.md,
