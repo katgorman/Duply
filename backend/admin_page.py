@@ -1,0 +1,255 @@
+from pathlib import Path
+
+
+_ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
+
+_FALLBACK_ADMIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Duply Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFF7FB;color:#171015;padding:24px}
+h1{font-size:22px;font-weight:800;color:#2A0B26;margin-bottom:24px}
+h2{font-size:15px;font-weight:700;color:#2A0B26;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+.card{background:#fff;border:2px solid #2A0B26;border-radius:16px;padding:20px;margin-bottom:20px;max-width:640px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+label{font-size:13px;font-weight:600;color:#4A2737;min-width:90px}
+input[type=number],input[type=text]{padding:6px 10px;border:1px solid rgba(42,11,38,.3);border-radius:8px;font-size:14px}
+input[type=number]{width:90px}
+button{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-size:13px;font-weight:700;background:#2A0B26;color:#fff;transition:opacity .15s}
+button:hover{opacity:.85}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.secondary{background:#FFD1E8;color:#2A0B26}
+.status{margin-top:12px;font-size:13px;background:#FFF9F0;border:1px solid rgba(42,11,38,.18);border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;display:none}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
+.badge-running{background:#FFF2DC;color:#8A5A00}
+.badge-completed{background:#d4f4e2;color:#1a6640}
+.badge-failed{background:#ffe0e0;color:#b00020}
+.badge-queued{background:#FFD1E8;color:#2A0B26}
+</style>
+</head>
+<body>
+<h1>Duply Admin</h1>
+
+<div class="card" id="card-status">
+<h2>System Status</h2>
+<button onclick="checkStatus(this)">Refresh Status</button>
+<pre class="status" id="status-out"></pre>
+</div>
+
+<div class="card">
+<h2>1 - Fix Miscategorized Products</h2>
+<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Re-runs category inference on all products currently stuck in "Other". No re-scraping.</p>
+<div class="row">
+  <label>Batch size</label>
+  <input type="number" id="recat-batch" value="200" min="10" max="500">
+  <button onclick="startJob(this, 'recat-catalog', 'recat')">Start Recat Job</button>
+</div>
+<div class="row" id="recat-job-row" style="display:none">
+  <span id="recat-badge" class="badge"></span>
+  <button class="secondary" id="recat-run-btn" onclick="advanceJob('recat')" disabled>Advance</button>
+  <span id="recat-progress" style="font-size:13px;color:#4A2737"></span>
+</div>
+<pre class="status" id="recat-out"></pre>
+</div>
+
+<div class="card">
+<h2>2 - Augment Sephora + Ulta</h2>
+<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Crawl product sitemaps and write new products to Firestore.</p>
+<div class="row">
+  <label>Batch/retailer</label>
+  <input type="number" id="aug-batch" value="100" min="10" max="500">
+  <button onclick="startJob(this, 'augment-us-retailers', 'aug')">Start Augment Job</button>
+</div>
+<div class="row" id="aug-job-row" style="display:none">
+  <span id="aug-badge" class="badge"></span>
+  <button class="secondary" id="aug-run-btn" onclick="advanceJob('aug')" disabled>Advance</button>
+  <span id="aug-progress" style="font-size:13px;color:#4A2737"></span>
+</div>
+<pre class="status" id="aug-out"></pre>
+</div>
+
+<div class="card">
+<h2>Active Jobs</h2>
+<div class="row">
+  <input type="text" id="job-id-input" placeholder="Job ID" style="flex:1">
+  <button onclick="pollJob()">Check Job</button>
+</div>
+<pre class="status" id="job-poll-out"></pre>
+</div>
+
+<script>
+const BASE = window.location.origin;
+const jobs = {};
+const JOB_PREFIX_BY_KIND = {
+  'recat-catalog': 'recat',
+  'augment-us-retailers': 'aug',
+  'augment-top-brands': 'aug',
+};
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function show(id, text) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
+}
+
+function setBadge(prefix, status) {
+  const badge = document.getElementById(prefix + '-badge');
+  badge.className = 'badge badge-' + (status || 'queued');
+  badge.textContent = status || 'queued';
+}
+
+function setProgress(prefix, state) {
+  const progress = state.progress || {};
+  const el = document.getElementById(prefix + '-progress');
+  if (!el) return;
+  if (prefix === 'recat') {
+    el.textContent = `scanned ${progress.scanned || 0} - updated ${progress.updated || 0}`;
+  } else if (prefix === 'aug') {
+    el.textContent = `found ${progress.productsFound || 0} - written ${progress.written || 0}`;
+  }
+}
+
+function rememberJob(prefix, state) {
+  if (!prefix || !state) return;
+  if (state.jobId) {
+    jobs[prefix] = state.jobId;
+    document.getElementById('job-id-input').value = state.jobId;
+  }
+  const row = document.getElementById(prefix + '-job-row');
+  if (row) row.style.display = 'flex';
+  setBadge(prefix, state.status);
+  setProgress(prefix, state);
+  show(prefix + '-out', state);
+}
+
+function setRunButton(prefix, text, disabled) {
+  const btn = document.getElementById(prefix + '-run-btn');
+  if (!btn) return;
+  btn.textContent = text;
+  btn.disabled = !!disabled;
+}
+
+async function checkStatus(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch(BASE + '/admin/status');
+    const payload = await response.json();
+    show('status-out', response.ok ? payload : { error: payload });
+  } catch (error) {
+    show('status-out', 'Error: ' + error.message);
+  }
+  if (btn) btn.disabled = false;
+}
+
+async function startJob(btn, kind, prefix) {
+  const batchInput = document.getElementById(prefix === 'recat' ? 'recat-batch' : 'aug-batch');
+  const batch = parseInt(batchInput.value, 10) || 100;
+  const body = kind === 'recat-catalog'
+    ? { kind, batchSize: batch }
+    : { kind, batchSizePerRetailer: batch };
+
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch(BASE + '/admin/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const state = await response.json();
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Failed to create job');
+    }
+    rememberJob(prefix, state);
+    await autoRunJob(prefix);
+  } catch (error) {
+    show(prefix + '-out', 'Error: ' + error.message);
+  }
+  if (btn) btn.disabled = false;
+}
+
+async function advanceJob(prefix) {
+  const jobId = jobs[prefix];
+  if (!jobId) return;
+  setRunButton(prefix, 'Running...', true);
+  try {
+    const response = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maxSteps: 8 }),
+    });
+    const state = await response.json();
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Failed to run job');
+    }
+    rememberJob(prefix, state);
+    if (state.status === 'running') {
+      setRunButton(prefix, 'Resume', false);
+    } else {
+      setRunButton(prefix, state.status === 'completed' ? 'Done!' : 'Failed', state.status === 'completed');
+    }
+    return state;
+  } catch (error) {
+    show(prefix + '-out', 'Error: ' + error.message);
+    setRunButton(prefix, 'Retry', false);
+    throw error;
+  }
+}
+
+async function autoRunJob(prefix) {
+  const jobId = jobs[prefix];
+  if (!jobId) return null;
+
+  let state = null;
+  while (true) {
+    state = await advanceJob(prefix);
+    if (!state || state.status !== 'running') {
+      return state;
+    }
+    await sleep(250);
+  }
+}
+
+async function pollJob() {
+  const id = document.getElementById('job-id-input').value.trim();
+  if (!id) return;
+  try {
+    show('job-poll-out', 'Loading...');
+    const response = await fetch(BASE + '/admin/jobs/' + id);
+    const state = await response.json();
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Job not found');
+    }
+    show('job-poll-out', state);
+
+    const prefix = JOB_PREFIX_BY_KIND[state.kind];
+    if (prefix) {
+      rememberJob(prefix, state);
+      if (state.status === 'running' || state.status === 'queued') {
+        await autoRunJob(prefix);
+      }
+    }
+  } catch (error) {
+    show('job-poll-out', 'Error: ' + error.message);
+  }
+}
+
+checkStatus();
+</script>
+</body>
+</html>
+"""
+
+
+def get_admin_html():
+    try:
+        return _ADMIN_HTML_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return _FALLBACK_ADMIN_HTML

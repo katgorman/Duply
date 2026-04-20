@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
+from admin_page import get_admin_html
 
 from firestore_products import (
     build_catalog_dedupe_key,
@@ -2021,12 +2022,9 @@ def health():
     return {"ok": True, **get_recommendation_status()}
 
 
-_ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
-
-
 @app.get("/admin", response_class=HTMLResponse)
 def admin_ui():
-    return HTMLResponse(content=_ADMIN_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content=get_admin_html())
 
 
 @app.get("/admin/status")
