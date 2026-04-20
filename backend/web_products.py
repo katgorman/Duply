@@ -807,7 +807,7 @@ def _normalize_official_offer(url, retailer, title, price, availability_status, 
     clean_url = str(url or "").strip()
     clean_price = _extract_price(price)
     normalized_status = _normalize_availability_status(availability_status)
-    if not clean_url or not is_approved_retailer_url(clean_url) or clean_price <= 0 or not _is_available_status(normalized_status):
+    if not clean_url or not is_approved_retailer_url(clean_url):
         return None
     return {
         "id": f"offer-{hashlib.sha1(clean_url.encode('utf-8')).hexdigest()[:14]}",
@@ -883,6 +883,19 @@ def _parse_official_retailer_product_page(url, retailer):
         availability_status,
         image=image,
     )
+
+    if not official_offer and brand and title:
+        official_offer = {
+            "id": f"offer-{hashlib.sha1((final_url or url).encode('utf-8')).hexdigest()[:14]}",
+            "retailer": config.get("displayName") or retailer,
+            "title": title,
+            "price": clean_price,
+            "url": final_url,
+            "image": image or "",
+            "shipping": availability_status,
+            "source": retailer_key,
+            "matchConfidence": 100,
+        }
 
     if not brand or not title or not official_offer:
         return None

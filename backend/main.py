@@ -1500,12 +1500,15 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
             continue
 
         live_urls = [url for url in item.get("candidateUrls", []) if url_status.get(url)]
+        surviving_urls = live_urls or list(item.get("candidateUrls", []))
         item["liveUrls"] = live_urls
+        item["survivingUrls"] = surviving_urls
         item["liveOfferMap"] = {}
+        item["retainedOfferMap"] = {}
 
         for offer in item.get("merchantOffers", []):
             url = str(offer.get("url") or "").strip()
-            if not url or not url_status.get(url):
+            if not url or not is_approved_retailer_url(url):
                 continue
             normalized_offer = {
                 "id": offer.get("id") or f"offer-{abs(hash((item['docId'], url))) % 10**12}",
@@ -1518,10 +1521,11 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 "source": offer.get("source") or item.get("source") or "catalog",
                 "matchConfidence": int(offer.get("matchConfidence") or 100),
             }
-            if normalized_offer["price"] > 0:
+            item["retainedOfferMap"][url] = normalized_offer
+            if url_status.get(url) and normalized_offer["price"] > 0:
                 item["liveOfferMap"][url] = normalized_offer
 
-        if not live_urls:
+        if not surviving_urls and not item["retainedOfferMap"]:
             invalid_doc_ids.append(item["docId"])
             invalid_removed += 1
             continue
@@ -1556,26 +1560,34 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 live_offers.append(offer)
 
         canonical_url = ""
-        if winner.get("liveUrls"):
+        if winner.get("survivingUrls"):
             preferred_url = str(winner["data"].get("productUrl") or winner["raw"].get("productUrl") or "").strip()
-            canonical_url = preferred_url if preferred_url in winner["liveUrls"] else winner["liveUrls"][0]
+            canonical_url = preferred_url if preferred_url in winner["survivingUrls"] else winner["survivingUrls"][0]
+
+        if not live_offers:
+            for item in sorted(group, key=_cleanup_doc_score, reverse=True):
+                for offer in item.get("retainedOfferMap", {}).values():
+                    key = _offer_identity_key(offer)
+                    if key in seen_offer_keys:
+                        continue
+                    seen_offer_keys.add(key)
+                    live_offers.append(offer)
 
         if canonical_url and canonical_url not in {offer.get("url") for offer in live_offers}:
             fallback_price = winner.get("bestPrice") or min(
                 [item.get("bestPrice", 0) for item in group if item.get("bestPrice", 0) > 0] or [0]
             )
-            if fallback_price > 0:
-                live_offers.append({
-                    "id": f"offer-{abs(hash((winner['docId'], canonical_url))) % 10**12}",
-                    "retailer": winner.get("source") or "",
-                    "title": winner.get("name"),
-                    "price": fallback_price,
-                    "url": canonical_url,
-                    "image": winner.get("image") or "",
-                    "shipping": "",
-                    "source": winner.get("source") or "catalog",
-                    "matchConfidence": 100,
-                })
+            live_offers.append({
+                "id": f"offer-{abs(hash((winner['docId'], canonical_url))) % 10**12}",
+                "retailer": winner.get("source") or "",
+                "title": winner.get("name"),
+                "price": fallback_price,
+                "url": canonical_url,
+                "image": winner.get("image") or "",
+                "shipping": str(winner["data"].get("availabilityStatus") or winner["raw"].get("availabilityStatus") or ""),
+                "source": winner.get("source") or "catalog",
+                "matchConfidence": 100,
+            })
 
         live_offers.sort(
             key=lambda offer: (
@@ -1593,27 +1605,24 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 if matching_offer:
                     price = matching_offer["price"]
             if price <= 0:
-                price = live_offers[0].get("price", 0)
+                price = next((offer.get("price", 0) for offer in live_offers if offer.get("price", 0) > 0), 0)
         if price <= 0:
             price = winner.get("bestPrice", 0)
-        if price <= 0:
-            invalid_doc_ids.extend(item["docId"] for item in group)
-            invalid_removed += len(group)
-            continue
 
         image = winner.get("image") or next((offer.get("image") for offer in live_offers if offer.get("image")), "")
         if validate_images and not image and canonical_url:
             image = find_product_image(winner.get("brand"), winner.get("name"), canonical_url)
-        if not image:
-            invalid_doc_ids.extend(item["docId"] for item in group)
-            invalid_removed += len(group)
-            continue
+        availability_status = str(
+            winner["data"].get("availabilityStatus")
+            or winner["raw"].get("availabilityStatus")
+            or "active"
+        ).strip() or "active"
 
         merged_raw = {
             **winner.get("raw", {}),
             "productUrl": canonical_url,
             "merchantOffers": live_offers,
-            "availabilityStatus": "active",
+            "availabilityStatus": availability_status,
         }
         rewritten_payloads.append({
             "id": winner["docId"],
@@ -1626,7 +1635,7 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
             "image": image,
             "productUrl": canonical_url,
             "source": winner.get("source") or "catalog",
-            "availabilityStatus": "active",
+            "availabilityStatus": availability_status,
             "merchantOffers": live_offers,
             "merchantDomain": canonical_url.split("/")[2] if "://" in canonical_url else "",
             "lastSeenAt": max(item.get("lastSeenAt", 0) for item in group) or int(time.time()),
