@@ -24,6 +24,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 .badge-completed{background:#d4f4e2;color:#1a6640}
 .badge-failed{background:#ffe0e0;color:#b00020}
 .badge-queued{background:#FFD1E8;color:#2A0B26}
+.hint{font-size:13px;color:#6f4f5e;margin-top:10px}
 </style>
 </head>
 <body>
@@ -45,9 +46,10 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 </div>
 <div class="row" id="recat-job-row" style="display:none">
   <span id="recat-badge" class="badge"></span>
-  <button class="secondary" id="recat-run-btn" onclick="advanceJob('recat')" disabled>Advance</button>
+  <button class="secondary" id="recat-run-btn" onclick="pollKnownJob('recat')">Refresh</button>
   <span id="recat-progress" style="font-size:13px;color:#4A2737"></span>
 </div>
+<p class="hint">Runs in the background worker after being queued.</p>
 <pre class="status" id="recat-out"></pre>
 </div>
 
@@ -61,9 +63,10 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 </div>
 <div class="row" id="aug-job-row" style="display:none">
   <span id="aug-badge" class="badge"></span>
-  <button class="secondary" id="aug-run-btn" onclick="advanceJob('aug')" disabled>Advance</button>
+  <button class="secondary" id="aug-run-btn" onclick="pollKnownJob('aug')">Refresh</button>
   <span id="aug-progress" style="font-size:13px;color:#4A2737"></span>
 </div>
+<p class="hint">Queues work for the background worker instead of running on the web service.</p>
 <pre class="status" id="aug-out"></pre>
 </div>
 
@@ -79,15 +82,12 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <script>
 const BASE = window.location.origin;
 const jobs = {};
+const pollTimers = {};
 const JOB_PREFIX_BY_KIND = {
   'recat-catalog': 'recat',
   'augment-us-retailers': 'aug',
   'augment-top-brands': 'aug',
 };
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 async function parseApiResponse(response, fallbackMessage) {
   const rawText = await response.text();
@@ -154,6 +154,20 @@ function setRunButton(prefix, text, disabled) {
   btn.disabled = !!disabled;
 }
 
+function clearJobPoll(prefix) {
+  if (pollTimers[prefix]) {
+    clearTimeout(pollTimers[prefix]);
+    delete pollTimers[prefix];
+  }
+}
+
+function scheduleJobPoll(prefix, delayMs = 3000) {
+  clearJobPoll(prefix);
+  pollTimers[prefix] = setTimeout(() => {
+    void pollKnownJob(prefix);
+  }, delayMs);
+}
+
 async function checkStatus(btn) {
   if (btn) btn.disabled = true;
   try {
@@ -182,28 +196,29 @@ async function startJob(btn, kind, prefix) {
     });
     const state = await parseApiResponse(response, 'Failed to create job');
     rememberJob(prefix, state);
-    await autoRunJob(prefix);
+    setRunButton(prefix, state.status === 'completed' ? 'Done!' : 'Waiting...', false);
+    if (state.status === 'queued' || state.status === 'running') {
+      scheduleJobPoll(prefix, 1000);
+    }
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
   }
   if (btn) btn.disabled = false;
 }
 
-async function advanceJob(prefix) {
+async function pollKnownJob(prefix) {
   const jobId = jobs[prefix];
   if (!jobId) return;
-  setRunButton(prefix, 'Running...', true);
+  setRunButton(prefix, 'Checking...', true);
   try {
-    const response = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 2 }),
-    });
-    const state = await parseApiResponse(response, 'Failed to run job');
+    const response = await fetch(BASE + '/admin/jobs/' + jobId);
+    const state = await parseApiResponse(response, 'Failed to fetch job');
     rememberJob(prefix, state);
-    if (state.status === 'running') {
-      setRunButton(prefix, 'Resume', false);
+    if (state.status === 'queued' || state.status === 'running') {
+      setRunButton(prefix, 'Refresh', false);
+      scheduleJobPoll(prefix);
     } else {
+      clearJobPoll(prefix);
       setRunButton(prefix, state.status === 'completed' ? 'Done!' : 'Failed', state.status === 'completed');
     }
     return state;
@@ -211,20 +226,6 @@ async function advanceJob(prefix) {
     show(prefix + '-out', 'Error: ' + error.message);
     setRunButton(prefix, 'Retry', false);
     throw error;
-  }
-}
-
-async function autoRunJob(prefix) {
-  const jobId = jobs[prefix];
-  if (!jobId) return null;
-
-  let state = null;
-  while (true) {
-    state = await advanceJob(prefix);
-    if (!state || state.status !== 'running') {
-      return state;
-    }
-    await sleep(250);
   }
 }
 
@@ -241,7 +242,7 @@ async function pollJob() {
     if (prefix) {
       rememberJob(prefix, state);
       if (state.status === 'running' || state.status === 'queued') {
-        await autoRunJob(prefix);
+        scheduleJobPoll(prefix, 1000);
       }
     }
   } catch (error) {

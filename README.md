@@ -165,6 +165,24 @@ uvicorn main:app --host 0.0.0.0 --port $PORT
 
 If your host runs commands from the repo root instead of the `backend/` folder, set the working directory to `backend` first.
 
+### Background Worker For Admin Jobs
+
+Long-running catalog augmentation and recategorization should run in a separate worker process, not inside the web service.
+
+Example worker start command from the repo root:
+
+```bash
+python backend/admin_job_worker.py
+```
+
+Recommended production setup:
+
+1. Web service:
+   `uvicorn main:app --host 0.0.0.0 --port $PORT`
+2. Background worker:
+   `python backend/admin_job_worker.py`
+3. Keep `DUPLY_ADMIN_ALLOW_INLINE_RUNS=false` on the web service so admin jobs stay off the request path.
+
 ### What You Must Keep Private
 
 Never expose any of these to end users or commit them publicly:

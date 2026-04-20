@@ -22,6 +22,7 @@ from firestore_products import (
     get_firestore_status,
     get_firestore_product_by_id,
     invalidate_catalog_cache,
+    list_admin_job_states,
     list_firestore_product_documents,
     list_products_by_category,
     normalize_catalog_price,
@@ -71,6 +72,7 @@ def _warm_catalog_on_startup():
 RESPONSE_CACHE_TTL_SECONDS = 300
 ADMIN_JOB_DEFAULT_MAX_STEPS = 1
 ADMIN_JOB_MAX_STEPS_LIMIT = 25
+ADMIN_INLINE_RUNS_ENABLED = os.getenv("DUPLY_ADMIN_ALLOW_INLINE_RUNS", "").strip().lower() in {"1", "true", "yes", "on"}
 SEARCH_LIVE_FALLBACK_MODE = (os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MODE", "when-empty").strip().lower() or "when-empty")
 SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS = max(0, int(os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS", "0")))
 _response_cache = {}
@@ -1843,6 +1845,10 @@ def _load_admin_job_state(job_id):
     return state
 
 
+def list_runnable_admin_jobs():
+    return list_admin_job_states(statuses=("queued", "running"))
+
+
 def _advance_cursor_job_state(state, result, error_message="Cursor repeated; job paused."):
     cursor = state.get("cursor", {})
     next_cursor = str(result.get("nextStartAfterId") or "").strip()
@@ -2040,6 +2046,10 @@ def admin_status():
         "model": get_recommendation_status(),
         "firestore": firestore_status,
         "dataforseo": dataforseo_status,
+        "adminJobs": {
+            "inlineRunsEnabled": ADMIN_INLINE_RUNS_ENABLED,
+            "workerRecommended": True,
+        },
         "augmentation": {
             "ready": bool(firestore_status.get("available") and dataforseo_status.get("credentialsPresent")),
             "augmentedCount": firestore_status.get("augmentedCount"),
@@ -2071,7 +2081,7 @@ async def create_admin_job(request: Request):
     _save_admin_job_state(state)
 
     max_steps = int(body.get("maxSteps") or 0)
-    if max_steps > 0:
+    if max_steps > 0 and ADMIN_INLINE_RUNS_ENABLED:
         state = run_admin_job(state["jobId"], max_steps=max_steps)
 
     return state
@@ -2095,6 +2105,12 @@ async def run_existing_admin_job(job_id: str, request: Request):
     state = _load_admin_job_state(job_id)
     if not state:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if not ADMIN_INLINE_RUNS_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail="Inline admin job runs are disabled on the web service. Run the background worker instead.",
+        )
 
     try:
         return run_admin_job(job_id, max_steps=body.get("maxSteps") or ADMIN_JOB_DEFAULT_MAX_STEPS)
