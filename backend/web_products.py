@@ -439,12 +439,12 @@ def _extract_price(raw_value):
     return normalize_catalog_price(match.group(1)) if match else 0
 
 
-def _infer_product_type(title):
-    text = normalize_text(title)
+def _infer_product_type(text):
+    normalized = normalize_text(text)
     for needle, product_type in CATEGORY_SEARCH_TERMS.items():
-        if needle in text or CATEGORY_SEARCH_TERMS[needle] in text:
+        if needle in normalized or normalize_text(product_type) in normalized:
             return normalize_product_type(needle)
-    return "general"
+    return ""
 
 
 def _meaningful_tokens(value):
@@ -871,7 +871,9 @@ def _parse_official_retailer_product_page(url, retailer):
     availability = str(offers.get("availability") or product_data.get("availability") or "").strip()
     availability_status = _normalize_availability_status(availability)
     category = _extract_breadcrumb_category(page_html)
-    product_type = normalize_product_type(category or _infer_product_type(title))
+    product_type = normalize_product_type(
+        _infer_product_type(category) or _infer_product_type(title) or category or "general"
+    )
     clean_price = _extract_price(price)
     if clean_price <= 0:
         clean_price = _extract_embedded_page_price(page_html)
@@ -994,7 +996,7 @@ def _normalize_candidate(candidate, product_info=None):
         candidate_url = ""
     product_url = (best_offer or {}).get("url") or candidate_url or ""
     image = candidate.get("image") or _find_source_page_image(product_url)
-    product_type = normalize_product_type(_infer_product_type(title))
+    product_type = normalize_product_type(_infer_product_type(title) or "general")
     brand = candidate.get("brand") or _find_supported_brand(title)
     normalized = {
         "firestore_id": build_catalog_product_id({"brand": brand, "product_name": title, "type": product_type}),

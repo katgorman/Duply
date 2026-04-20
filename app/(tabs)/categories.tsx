@@ -10,23 +10,29 @@ import { prefetchCategoryPage } from '../../services/api';
 import type { Category, Dupe, Product } from '../../services/api';
 
 const FALLBACK_CATEGORIES: Category[] = [
-  { id: 'eyes', name: 'Eyes', emoji: '', productType: 'eyes', color: '#FFF9F0' },
-  { id: 'lips', name: 'Lips', emoji: '', productType: 'lips', color: '#FFE4F0' },
   { id: 'face', name: 'Face', emoji: '', productType: 'face', color: '#F7C6D9' },
+  { id: 'lips', name: 'Lips', emoji: '', productType: 'lips', color: '#FFE4F0' },
+  { id: 'eyes', name: 'Eyes', emoji: '', productType: 'eyes', color: '#FFF9F0' },
   { id: 'skincare', name: 'Skincare', emoji: '', productType: 'skincare', color: '#FFF6F9' },
+  { id: 'nails', name: 'Nails', emoji: '', productType: 'nails', color: '#FFF2DC' },
   { id: 'other', name: 'Other', emoji: '', productType: 'other', color: '#2A0B26' },
 ];
 
 const MOOD_LANES = [
+  {
+    id: 'face-preview',
+    title: 'Face Base Dupes',
+    category: 'face',
+  },
   {
     id: 'lips-preview',
     title: 'Luxury Lip Alternatives',
     category: 'lips',
   },
   {
-    id: 'face-preview',
-    title: 'Face Base Refresh',
-    category: 'face',
+    id: 'eyes-preview',
+    title: 'Eye Makeup Finds',
+    category: 'eyes',
   },
   {
     id: 'skincare-preview',
@@ -216,12 +222,17 @@ export default function CategoriesScreen() {
   const router = useRouter();
   const { data, loading: categoriesLoading } = useCategories();
   const { data: featuredDupes, loading: featuredDupesLoading } = useFeaturedDupes();
+  const { data: facePreview, loading: facePreviewLoading } = useProductsByCategory('face', {
+    page: 1,
+    pageSize: 3,
+    sort: 'popular',
+  });
   const { data: lipsPreview, loading: lipsPreviewLoading } = useProductsByCategory('lips', {
     page: 1,
     pageSize: 3,
     sort: 'popular',
   });
-  const { data: facePreview, loading: facePreviewLoading } = useProductsByCategory('face', {
+  const { data: eyesPreview, loading: eyesPreviewLoading } = useProductsByCategory('eyes', {
     page: 1,
     pageSize: 3,
     sort: 'popular',
@@ -234,9 +245,10 @@ export default function CategoriesScreen() {
 
   const categories = data?.length ? data : FALLBACK_CATEGORIES;
   const moodLanes = [
-    { ...MOOD_LANES[0], items: lipsPreview?.items || [], loading: lipsPreviewLoading },
-    { ...MOOD_LANES[1], items: facePreview?.items || [], loading: facePreviewLoading },
-    { ...MOOD_LANES[2], items: skincarePreview?.items || [], loading: skincarePreviewLoading },
+    { ...MOOD_LANES[0], items: facePreview?.items || [], loading: facePreviewLoading },
+    { ...MOOD_LANES[1], items: lipsPreview?.items || [], loading: lipsPreviewLoading },
+    { ...MOOD_LANES[2], items: eyesPreview?.items || [], loading: eyesPreviewLoading },
+    { ...MOOD_LANES[3], items: skincarePreview?.items || [], loading: skincarePreviewLoading },
   ];
   const standoutDupes = [...(featuredDupes || [])]
     .sort((left, right) => right.savings - left.savings || right.similarity - left.similarity)

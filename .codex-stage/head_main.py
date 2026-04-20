@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import hashlib
 import re
@@ -8,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -20,13 +18,11 @@ from firestore_products import (
     get_admin_job_state,
     get_firestore_status,
     get_firestore_product_by_id,
-    invalidate_catalog_cache,
     list_firestore_product_documents,
     list_products_by_category,
     normalize_catalog_price,
     normalize_text,
     normalize_product_type,
-    _product_bucket,
     search_firestore_products,
     set_admin_job_state,
     upsert_firestore_products,
@@ -40,7 +36,6 @@ from web_products import (
     find_price_matches,
     find_product_image,
     get_dataforseo_status,
-    _infer_product_type,
     is_approved_retailer_url,
     is_live_product_url,
     search_web_products,
@@ -69,8 +64,6 @@ def _warm_catalog_on_startup():
 RESPONSE_CACHE_TTL_SECONDS = 300
 ADMIN_JOB_DEFAULT_MAX_STEPS = 1
 ADMIN_JOB_MAX_STEPS_LIMIT = 25
-SEARCH_LIVE_FALLBACK_MODE = (os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MODE", "when-empty").strip().lower() or "when-empty")
-SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS = max(0, int(os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS", "0")))
 _response_cache = {}
 
 
@@ -90,54 +83,6 @@ def _cache_get(key):
 def _cache_set(key, value):
     _response_cache[key] = (time.time(), value)
     return value
-
-
-def _clear_response_cache():
-    _response_cache.clear()
-
-
-def _resolved_search_web_limit(requested_web_limit: int, local_result_count: int) -> int:
-    normalized_limit = max(0, int(requested_web_limit or 0))
-    if normalized_limit <= 0:
-        return 0
-
-    mode = SEARCH_LIVE_FALLBACK_MODE
-    if mode in {"disabled", "off", "false", "0"}:
-        return 0
-    if mode in {"always", "on", "true", "1"}:
-        return normalized_limit
-    if mode in {"when-empty", "empty-only"}:
-        return normalized_limit if local_result_count <= SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS else 0
-    if mode in {"when-sparse", "sparse"}:
-        sparse_threshold = max(SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS, max(1, normalized_limit // 2))
-        return normalized_limit if local_result_count <= sparse_threshold else 0
-
-    return normalized_limit if local_result_count <= SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS else 0
-
-
-def _cache_get_search_candidates(query, local_limit, web_limit, max_results):
-    normalized_query = _normalize_text(query)
-    cache_key = ("search-candidates", normalized_query)
-    cached = _cache_get(cache_key)
-    if isinstance(cached, dict):
-        cached_items = cached.get("items") or []
-        cached_budget = int(cached.get("budget") or 0)
-        cached_complete = bool(cached.get("complete"))
-        if cached_complete or cached_budget >= max_results or len(cached_items) >= max_results:
-            return cached_items[:max_results]
-
-    combined = _search_products_with_fallback(
-        query,
-        local_limit=local_limit,
-        web_limit=web_limit,
-        max_results=max_results,
-    )
-    _cache_set(cache_key, {
-        "items": combined,
-        "budget": max_results,
-        "complete": len(combined) < max_results,
-    })
-    return combined
 
 
 def _normalize_number(value, default=0):
@@ -161,157 +106,6 @@ def _normalize_text(value):
     if value is None:
         return ""
     return str(value).strip().lower()
-
-
-VARIANT_STOP_WORDS = {
-    "shade",
-    "shades",
-    "color",
-    "colors",
-    "colour",
-    "colours",
-    "hue",
-    "tone",
-    "tones",
-    "finish",
-    "variant",
-}
-
-
-def _normalize_family_token(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", _normalize_text(value)).strip()
-
-
-def _to_title_case(value: str) -> str:
-    return " ".join(
-        part[:1].upper() + part[1:]
-        for part in re.split(r"\s+", str(value or "").strip())
-        if part
-    )
-
-
-def _looks_like_variant_suffix(value: str) -> bool:
-    normalized = _normalize_family_token(value)
-    if not normalized:
-        return False
-
-    if re.match(r"^[a-z]?\d{2,6}(?:\s+[a-z0-9].*)?$", str(value or "").strip(), re.IGNORECASE):
-        return True
-
-    token_count = len(normalized.split())
-    return token_count <= 4 and len(normalized) <= 28
-
-
-def _normalize_variant_label(value: str) -> str:
-    return re.sub(r"^[|:,\-()\s]+|[|:,\-()\s]+$", "", str(value or "").strip())
-
-
-def _split_title_stem(name: str):
-    trimmed = str(name or "").strip()
-    separated = re.match(r"^(.*?)(?:\s+(?:\||:|-)\s+)([^|:]{1,40})$", trimmed)
-    if separated and separated.group(1) and separated.group(2):
-        stem = separated.group(1).strip()
-        suffix = _normalize_variant_label(separated.group(2))
-        if stem and _looks_like_variant_suffix(suffix) and len(stem) >= max(6, int(len(trimmed) * 0.45)):
-            return stem, suffix
-
-    patterns = [
-        r"^(.*)\s+[|:-]\s*([a-z]?\d{2,6}\b[^|:-]{0,40})\s*$",
-        r"^(.*)\s+[(-]([^()]*?(?:shade|color|colour|tone|hue|finish|variant)[^()]*)[)\-]\s*$",
-        r"^(.*)\s+\b(?:in\s+)?(?:shade|color|colour|tone|hue|finish)\b\s+(.+)$",
-        r"^(.*)\s+\b(?:mini|travel size|full size)\b\s*$",
-    ]
-
-    for pattern in patterns:
-        matched = re.match(pattern, trimmed, re.IGNORECASE)
-        stem = (matched.group(1).strip() if matched and matched.group(1) else "")
-        suffix = _normalize_variant_label(matched.group(2) if matched and matched.lastindex and matched.lastindex >= 2 else "")
-        if stem and len(stem) >= max(6, int(len(trimmed) * 0.45)):
-            if not suffix or _looks_like_variant_suffix(suffix):
-                return stem, suffix
-
-    return trimmed, ""
-
-
-def _product_family_name(product):
-    stem, _ = _split_title_stem(product.get("name") or "")
-    return stem or product.get("name") or ""
-
-
-def _product_family_key(product):
-    brand = _normalize_family_token(product.get("brand") or "")
-    category = _normalize_family_token(product.get("category") or "")
-    product_type = _normalize_family_token(product.get("productType") or "")
-    family_name = _normalize_family_token(_product_family_name(product))
-    return "|".join([brand, category, product_type, family_name])
-
-
-def _extract_variant_label(product, family_name):
-    name = str(product.get("name") or "").strip()
-    if name and family_name and _normalize_text(name) != _normalize_text(family_name):
-        stem, variant_label = _split_title_stem(name)
-        normalized_variant = _normalize_family_token(variant_label)
-        if (
-            _normalize_text(stem) == _normalize_text(family_name.strip())
-            and variant_label
-            and len(variant_label) <= 40
-            and normalized_variant
-            and normalized_variant not in VARIANT_STOP_WORDS
-        ):
-            return _to_title_case(variant_label)
-    return ""
-
-
-def _with_variant_options(product, siblings):
-    family_name = _product_family_name(product)
-    variant_options = []
-
-    for sibling in siblings:
-        label = _extract_variant_label(sibling, family_name)
-        if not label and not sibling.get("image"):
-            continue
-        variant_options.append({
-            "id": sibling.get("id"),
-            "label": label,
-            "image": sibling.get("image") or "",
-            "price": sibling.get("price") or 0,
-        })
-
-    variant_options.sort(key=lambda item: ((item.get("label") or "").lower(), item.get("id") or ""))
-
-    return {
-        **product,
-        "familyName": family_name,
-        "variantGroupId": _product_family_key(product),
-        "variantOptions": variant_options if len(variant_options) > 1 else [],
-        "selectedVariantLabel": _extract_variant_label(product, family_name),
-    }
-
-
-def _group_products_by_family(products):
-    groups = {}
-
-    for product in products or []:
-        key = _product_family_key(product)
-        groups.setdefault(key, []).append(product)
-
-    consolidated = []
-    for siblings in groups.values():
-        preferred = next(
-            (product for product in siblings if not _extract_variant_label(product, _product_family_name(product))),
-            None,
-        )
-        if not preferred:
-            preferred = sorted(
-                siblings,
-                key=lambda product: (
-                    not bool(product.get("image")),
-                    _normalize_text(product.get("name")),
-                ),
-            )[0]
-        consolidated.append(_with_variant_options(preferred, siblings))
-
-    return consolidated
 
 
 GENERIC_NAME_STOPWORDS = {
@@ -574,13 +368,7 @@ def _product_from_record(record, fallback=None, enrich_image=False):
             if offer_image:
                 break
     image = record.get("image") or raw.get("image") or raw.get("imageUrl") or offer_image or fallback.get("image", "")
-    product_url = (
-        record.get("productUrl")
-        or record.get("title-href")
-        or raw.get("productUrl")
-        or raw.get("title-href")
-        or ""
-    )
+    product_url = record.get("title-href") or raw.get("productUrl") or raw.get("title-href") or ""
     if enrich_image and not image:
         image = find_product_image(brand, name, product_url)
         if image and explicit_id:
@@ -621,10 +409,6 @@ def _product_from_record(record, fallback=None, enrich_image=False):
         "source": record.get("source") or raw.get("source") or "catalog",
         "productUrl": product_url,
         "releaseYear": record.get("releaseYear") or raw.get("releaseYear") or None,
-        "familyName": record.get("familyName") or fallback.get("familyName") or "",
-        "variantGroupId": record.get("variantGroupId") or fallback.get("variantGroupId") or "",
-        "selectedVariantLabel": record.get("selectedVariantLabel") or fallback.get("selectedVariantLabel") or "",
-        "variantOptions": record.get("variantOptions") or fallback.get("variantOptions") or [],
     }
 
 
@@ -675,22 +459,6 @@ def _finalize_product(product, require_image=True):
         return None
 
     return normalized
-
-
-def _with_family_metadata(product, source):
-    if not product:
-        return None
-    if not source:
-        return product
-
-    variant_options = source.get("variantOptions") or product.get("variantOptions") or []
-    return {
-        **product,
-        "familyName": source.get("familyName") or product.get("familyName") or "",
-        "variantGroupId": source.get("variantGroupId") or product.get("variantGroupId") or "",
-        "selectedVariantLabel": source.get("selectedVariantLabel") or product.get("selectedVariantLabel") or "",
-        "variantOptions": variant_options if len(variant_options) > 1 else [],
-    }
 
 
 def _dedupe_products(products, require_image=True):
@@ -846,7 +614,7 @@ def _coerce_to_display_product(record, fallback=None, enrich_image=False):
 
     resolved_product = _resolve_live_product(normalized_product)
     if resolved_product:
-        return _with_family_metadata(_finalize_product(resolved_product, require_image=False), normalized_product)
+        return _finalize_product(resolved_product, require_image=False)
 
     return normalized_product
 
@@ -864,7 +632,7 @@ def _coerce_to_search_product(record, fallback=None, enrich_image=False):
     if not resolved_product:
         return None
 
-    return _with_family_metadata(_finalize_product(resolved_product, require_image=False), normalized_product)
+    return _finalize_product(resolved_product, require_image=False)
 
 
 def _directly_available_product(record, fallback=None, enrich_image=False, require_image=True):
@@ -1033,7 +801,7 @@ def _fallback_dupe_candidates(original_product, brand: str, name: str, product_t
             continue
 
     for record in source_records:
-        candidate = _search_ready_product(
+        candidate = _coerce_to_display_product(
             record,
             fallback={"id": record.get("firestore_id", "")},
             enrich_image=False,
@@ -1146,10 +914,9 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         if len(combined) >= max_results:
             break
 
-    resolved_web_limit = _resolved_search_web_limit(web_limit, len(combined))
-    if resolved_web_limit > 0 and len(combined) < max_results:
+    if web_limit > 0 and len(combined) < max_results:
         remaining = max_results - len(combined)
-        live_results = search_web_products(q, limit=min(resolved_web_limit, remaining))
+        live_results = search_web_products(q, limit=min(web_limit, remaining))
         for product in live_results:
             normalized_product = _search_ready_product(
                 product,
@@ -1201,15 +968,13 @@ def _offer_identity_key(offer):
     )
 
 
-def _normalize_price_offer(offer, brand="", name="", check_live_url=True):
+def _normalize_price_offer(offer, brand="", name=""):
     url = str(offer.get("url") or "").strip()
     title = str(offer.get("title") or f"{brand} {name}".strip()).strip()
     price = _normalize_price(offer.get("price"))
     if not url or price <= 0:
         return None
-    if not is_approved_retailer_url(url):
-        return None
-    if check_live_url and not is_live_product_url(url):
+    if not is_approved_retailer_url(url) or not is_live_product_url(url):
         return None
     return {
         "id": offer.get("id") or f"offer-{abs(hash((title, url))) % 10**12}",
@@ -1230,7 +995,7 @@ def _catalog_price_matches(brand: str, name: str, limit: int = 12):
     query = f"{brand} {name}".strip()
 
     for record in search_firestore_products(query, limit=max(limit * 10, 40)):
-        product = _search_ready_product(
+        product = _coerce_to_display_product(
             record,
             fallback={"id": record.get("firestore_id", "")},
             enrich_image=False,
@@ -1251,7 +1016,7 @@ def _catalog_price_matches(brand: str, name: str, limit: int = 12):
             "image": product.get("image"),
             "source": record.get("source") or "catalog",
             "matchConfidence": confidence,
-        }, brand=brand, name=name, check_live_url=False)
+        }, brand=brand, name=name)
         if not normalized_offer:
             continue
 
@@ -1277,7 +1042,7 @@ def _merge_price_offers(*offer_groups, brand="", name="", limit=3):
     seen = set()
     for group in offer_groups:
         for offer in group or []:
-            normalized_offer = _normalize_price_offer(offer, brand=brand, name=name, check_live_url=False)
+            normalized_offer = _normalize_price_offer(offer, brand=brand, name=name)
             if not normalized_offer:
                 continue
             key = _offer_identity_key(normalized_offer)
@@ -1504,15 +1269,12 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
             continue
 
         live_urls = [url for url in item.get("candidateUrls", []) if url_status.get(url)]
-        surviving_urls = live_urls or list(item.get("candidateUrls", []))
         item["liveUrls"] = live_urls
-        item["survivingUrls"] = surviving_urls
         item["liveOfferMap"] = {}
-        item["retainedOfferMap"] = {}
 
         for offer in item.get("merchantOffers", []):
             url = str(offer.get("url") or "").strip()
-            if not url or not is_approved_retailer_url(url):
+            if not url or not url_status.get(url):
                 continue
             normalized_offer = {
                 "id": offer.get("id") or f"offer-{abs(hash((item['docId'], url))) % 10**12}",
@@ -1525,11 +1287,10 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 "source": offer.get("source") or item.get("source") or "catalog",
                 "matchConfidence": int(offer.get("matchConfidence") or 100),
             }
-            item["retainedOfferMap"][url] = normalized_offer
-            if url_status.get(url) and normalized_offer["price"] > 0:
+            if normalized_offer["price"] > 0:
                 item["liveOfferMap"][url] = normalized_offer
 
-        if not surviving_urls and not item["retainedOfferMap"]:
+        if not live_urls:
             invalid_doc_ids.append(item["docId"])
             invalid_removed += 1
             continue
@@ -1564,34 +1325,26 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 live_offers.append(offer)
 
         canonical_url = ""
-        if winner.get("survivingUrls"):
+        if winner.get("liveUrls"):
             preferred_url = str(winner["data"].get("productUrl") or winner["raw"].get("productUrl") or "").strip()
-            canonical_url = preferred_url if preferred_url in winner["survivingUrls"] else winner["survivingUrls"][0]
-
-        if not live_offers:
-            for item in sorted(group, key=_cleanup_doc_score, reverse=True):
-                for offer in item.get("retainedOfferMap", {}).values():
-                    key = _offer_identity_key(offer)
-                    if key in seen_offer_keys:
-                        continue
-                    seen_offer_keys.add(key)
-                    live_offers.append(offer)
+            canonical_url = preferred_url if preferred_url in winner["liveUrls"] else winner["liveUrls"][0]
 
         if canonical_url and canonical_url not in {offer.get("url") for offer in live_offers}:
             fallback_price = winner.get("bestPrice") or min(
                 [item.get("bestPrice", 0) for item in group if item.get("bestPrice", 0) > 0] or [0]
             )
-            live_offers.append({
-                "id": f"offer-{abs(hash((winner['docId'], canonical_url))) % 10**12}",
-                "retailer": winner.get("source") or "",
-                "title": winner.get("name"),
-                "price": fallback_price,
-                "url": canonical_url,
-                "image": winner.get("image") or "",
-                "shipping": str(winner["data"].get("availabilityStatus") or winner["raw"].get("availabilityStatus") or ""),
-                "source": winner.get("source") or "catalog",
-                "matchConfidence": 100,
-            })
+            if fallback_price > 0:
+                live_offers.append({
+                    "id": f"offer-{abs(hash((winner['docId'], canonical_url))) % 10**12}",
+                    "retailer": winner.get("source") or "",
+                    "title": winner.get("name"),
+                    "price": fallback_price,
+                    "url": canonical_url,
+                    "image": winner.get("image") or "",
+                    "shipping": "",
+                    "source": winner.get("source") or "catalog",
+                    "matchConfidence": 100,
+                })
 
         live_offers.sort(
             key=lambda offer: (
@@ -1609,24 +1362,27 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
                 if matching_offer:
                     price = matching_offer["price"]
             if price <= 0:
-                price = next((offer.get("price", 0) for offer in live_offers if offer.get("price", 0) > 0), 0)
+                price = live_offers[0].get("price", 0)
         if price <= 0:
             price = winner.get("bestPrice", 0)
+        if price <= 0:
+            invalid_doc_ids.extend(item["docId"] for item in group)
+            invalid_removed += len(group)
+            continue
 
         image = winner.get("image") or next((offer.get("image") for offer in live_offers if offer.get("image")), "")
         if validate_images and not image and canonical_url:
             image = find_product_image(winner.get("brand"), winner.get("name"), canonical_url)
-        availability_status = str(
-            winner["data"].get("availabilityStatus")
-            or winner["raw"].get("availabilityStatus")
-            or "active"
-        ).strip() or "active"
+        if not image:
+            invalid_doc_ids.extend(item["docId"] for item in group)
+            invalid_removed += len(group)
+            continue
 
         merged_raw = {
             **winner.get("raw", {}),
             "productUrl": canonical_url,
             "merchantOffers": live_offers,
-            "availabilityStatus": availability_status,
+            "availabilityStatus": "active",
         }
         rewritten_payloads.append({
             "id": winner["docId"],
@@ -1639,7 +1395,7 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
             "image": image,
             "productUrl": canonical_url,
             "source": winner.get("source") or "catalog",
-            "availabilityStatus": availability_status,
+            "availabilityStatus": "active",
             "merchantOffers": live_offers,
             "merchantDomain": canonical_url.split("/")[2] if "://" in canonical_url else "",
             "lastSeenAt": max(item.get("lastSeenAt", 0) for item in group) or int(time.time()),
@@ -1663,63 +1419,6 @@ def cleanup_firestore_catalog(max_docs=0, start_after_id="", validate_images=Tru
         "groupsMerged": merged_groups,
         "nextStartAfterId": docs[-1].id if docs else None,
         "finished": not bool(max_docs and len(docs) >= max_docs),
-    }
-
-
-def _best_recat_type(product):
-    candidates = [
-        product.get("subcategory"),
-        product.get("type"),
-        product.get("category"),
-        product.get("productType"),
-        (product.get("raw") or {}).get("category"),
-        product.get("product_name"),
-    ]
-    for raw in candidates:
-        if not raw:
-            continue
-        inferred = _infer_product_type(str(raw))
-        if inferred and inferred != "general":
-            return normalize_product_type(inferred)
-    return ""
-
-
-def recat_firestore_catalog(batch_size=100, start_after_id=""):
-    docs = _slice_cleanup_docs(
-        list_firestore_product_documents(),
-        max_docs=batch_size,
-        start_after_id=start_after_id,
-    )
-    if not docs:
-        return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True}
-
-    from firestore_products import db as _fs_db, PRODUCTS_COLLECTION
-    if _fs_db is None:
-        return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True, "error": "no-firestore"}
-
-    batch = _fs_db.batch()
-    updated = 0
-    for doc in docs:
-        data = doc.to_dict() or {}
-        data["firestore_id"] = doc.id
-        if _product_bucket(data) != "other":
-            continue
-        new_type = _best_recat_type(data)
-        if not new_type or new_type == "general":
-            continue
-        ref = _fs_db.collection(PRODUCTS_COLLECTION).document(doc.id)
-        batch.update(ref, {"type": new_type, "category": new_type, "subcategory": new_type})
-        updated += 1
-
-    if updated:
-        batch.commit()
-        invalidate_catalog_cache()
-
-    return {
-        "scanned": len(docs),
-        "updated": updated,
-        "nextStartAfterId": docs[-1].id if docs else None,
-        "finished": not bool(batch_size and len(docs) >= batch_size),
     }
 
 
@@ -1754,19 +1453,10 @@ def _augment_us_retailers_job_config(body):
 
 def _augment_top_brands_job_config(body):
     return {
-        "retailers": body.get("retailers") or ["sephora", "ulta"],
-        "batchSizePerRetailer": max(
-            1,
-            min(
-                int(
-                    body.get("batchSizePerRetailer")
-                    or body.get("maxUrlsPerRetailer")
-                    or body.get("perQueryLimit")
-                    or 25
-                ),
-                100,
-            ),
-        ),
+        "brands": body.get("brands") or None,
+        "categories": body.get("categories") or None,
+        "perQueryLimit": max(1, min(int(body.get("perQueryLimit") or 25), 100)),
+        "queriesPerStep": max(1, min(int(body.get("queriesPerStep") or body.get("maxQueries") or 5), 20)),
     }
 
 
@@ -1809,16 +1499,13 @@ def _create_admin_job_state(kind, config):
             "retailerSummaries": {},
         })
     elif normalized_kind == "augment-top-brands":
-        state["cursor"] = {"retailerIndex": 0, "startIndex": 0}
+        state["cursor"] = {"startQueryIndex": 0}
         state["progress"].update({
+            "queriesRun": 0,
             "productsFound": 0,
             "written": 0,
-            "retailersCompleted": 0,
-            "retailerSummaries": {},
+            "totalQueries": 0,
         })
-    elif normalized_kind == "recat-catalog":
-        state["cursor"] = {"startAfterId": "", "previousCursor": "", "repeatCount": 0}
-        state["progress"].update({"scanned": 0, "updated": 0})
     else:
         raise ValueError(f"Unsupported job kind: {kind}")
 
@@ -1907,7 +1594,6 @@ def _step_augment_us_retailers_job(state):
         max_urls_per_retailer=config.get("batchSizePerRetailer") or 25,
         start_index=start_index,
     )
-    _clear_response_cache()
 
     progress = state["progress"]
     progress["stepsRun"] += 1
@@ -1942,39 +1628,35 @@ def _step_augment_us_retailers_job(state):
 
 
 def _step_augment_top_brands_job(state):
-    return _step_augment_us_retailers_job(state)
-
-
-def _step_recat_catalog_job(state):
-    cursor = state.get("cursor", {})
     config = state.get("config", {})
-    result = recat_firestore_catalog(
-        batch_size=int(config.get("batchSize") or 100),
-        start_after_id=cursor.get("startAfterId") or "",
+    cursor = state.get("cursor", {})
+    result = augment_firestore_catalog_with_top_brands_slice(
+        brands=config.get("brands"),
+        categories=config.get("categories"),
+        per_query_limit=config.get("perQueryLimit") or 25,
+        start_query_index=cursor.get("startQueryIndex") or 0,
+        max_queries=config.get("queriesPerStep") or 5,
     )
 
     progress = state["progress"]
     progress["stepsRun"] += 1
-    progress["scanned"] += int(result.get("scanned") or 0)
-    progress["updated"] += int(result.get("updated") or 0)
+    progress["queriesRun"] += int(result.get("queriesRun") or 0)
+    progress["productsFound"] += int(result.get("productsFound") or 0)
+    progress["written"] += int((result.get("firestore") or {}).get("written") or 0)
+    progress["totalQueries"] = int(result.get("totalQueries") or progress.get("totalQueries") or 0)
 
-    next_cursor = str(result.get("nextStartAfterId") or "").strip()
-    current_cursor = str(cursor.get("startAfterId") or "").strip()
-    previous_cursor = str(cursor.get("previousCursor") or "").strip()
-
-    if result.get("finished") or not next_cursor:
+    if result.get("finished"):
         state["status"] = "completed"
         state["completedAt"] = _job_now()
-    elif next_cursor == current_cursor or next_cursor == previous_cursor:
-        state["status"] = "failed"
-        state["error"] = "Cursor repeated; job paused."
     else:
-        state["status"] = "running"
-        state["cursor"] = {
-            "startAfterId": next_cursor,
-            "previousCursor": current_cursor,
-            "repeatCount": 0,
-        }
+        next_query_index = int(result.get("nextQueryIndex") or 0)
+        current_query_index = int(cursor.get("startQueryIndex") or 0)
+        if next_query_index <= current_query_index:
+            state["status"] = "failed"
+            state["error"] = "Top-brand augmentation query cursor did not advance."
+        else:
+            state["status"] = "running"
+            state["cursor"] = {"startQueryIndex": next_query_index}
 
     state["lastResult"] = result
     return state
@@ -1988,8 +1670,6 @@ def _run_admin_job_step(state):
         return _step_augment_us_retailers_job(state)
     if kind == "augment-top-brands":
         return _step_augment_top_brands_job(state)
-    if kind == "recat-catalog":
-        return _step_recat_catalog_job(state)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -2028,187 +1708,6 @@ def health():
     return {"ok": True, **get_recommendation_status()}
 
 
-@app.get("/admin", response_class=HTMLResponse)
-def admin_ui():
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Duply Admin</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFF7FB;color:#171015;padding:24px}
-h1{font-size:22px;font-weight:800;color:#2A0B26;margin-bottom:24px}
-h2{font-size:15px;font-weight:700;color:#2A0B26;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-.card{background:#fff;border:2px solid #2A0B26;border-radius:16px;padding:20px;margin-bottom:20px;max-width:640px}
-.row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
-label{font-size:13px;font-weight:600;color:#4A2737;min-width:90px}
-input[type=number]{width:90px;padding:6px 10px;border:1px solid rgba(42,11,38,.3);border-radius:8px;font-size:14px}
-button{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-size:13px;font-weight:700;background:#2A0B26;color:#fff;transition:opacity .15s}
-button:hover{opacity:.85}
-button:disabled{opacity:.4;cursor:not-allowed}
-button.secondary{background:#FFD1E8;color:#2A0B26}
-.status{margin-top:12px;font-size:13px;background:#FFF9F0;border:1px solid rgba(42,11,38,.18);border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;display:none}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
-.badge-running{background:#FFF2DC;color:#8A5A00}
-.badge-completed{background:#d4f4e2;color:#1a6640}
-.badge-failed{background:#ffe0e0;color:#b00020}
-.badge-queued{background:#FFD1E8;color:#2A0B26}
-</style>
-</head>
-<body>
-<h1>Duply Admin</h1>
-
-<div class="card" id="card-status">
-<h2>System Status</h2>
-<button onclick="checkStatus()">Refresh Status</button>
-<pre class="status" id="status-out"></pre>
-</div>
-
-<div class="card">
-<h2>1 — Fix Miscategorized Products</h2>
-<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Re-runs category inference on all products currently stuck in "Other". No re-scraping.</p>
-<div class="row">
-  <label>Batch size</label>
-  <input type="number" id="recat-batch" value="200" min="10" max="500">
-  <button onclick="startJob('recat-catalog','recat')">Start Recat Job</button>
-</div>
-<div class="row" id="recat-job-row" style="display:none">
-  <span id="recat-badge" class="badge"></span>
-  <button class="secondary" id="recat-run-btn" onclick="advanceJob('recat')" disabled>Advance</button>
-  <span id="recat-progress" style="font-size:13px;color:#4A2737"></span>
-</div>
-<pre class="status" id="recat-out"></pre>
-</div>
-
-<div class="card">
-<h2>2 — Augment Sephora + Ulta</h2>
-<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Crawl product sitemaps and write new products to Firestore.</p>
-<div class="row">
-  <label>Batch/retailer</label>
-  <input type="number" id="aug-batch" value="100" min="10" max="500">
-  <button onclick="startJob('augment-us-retailers','aug')">Start Augment Job</button>
-</div>
-<div class="row" id="aug-job-row" style="display:none">
-  <span id="aug-badge" class="badge"></span>
-  <button class="secondary" id="aug-run-btn" onclick="advanceJob('aug')" disabled>Advance</button>
-  <span id="aug-progress" style="font-size:13px;color:#4A2737"></span>
-</div>
-<pre class="status" id="aug-out"></pre>
-</div>
-
-<div class="card">
-<h2>Active Jobs</h2>
-<div class="row">
-  <input type="text" id="job-id-input" placeholder="Job ID" style="flex:1;padding:6px 10px;border:1px solid rgba(42,11,38,.3);border-radius:8px;font-size:14px">
-  <button onclick="pollJob()">Check Job</button>
-</div>
-<pre class="status" id="job-poll-out"></pre>
-</div>
-
-<script>
-const BASE = window.location.origin;
-const jobs = {};
-
-function show(id, text) {
-  const el = document.getElementById(id);
-  el.style.display = 'block';
-  el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
-}
-
-function setBadge(prefix, status) {
-  const b = document.getElementById(prefix + '-badge');
-  b.className = 'badge badge-' + (status || 'queued');
-  b.textContent = status || 'queued';
-}
-
-function setProgress(prefix, state) {
-  const p = state.progress || {};
-  const el = document.getElementById(prefix + '-progress');
-  if (!el) return;
-  if (prefix === 'recat') {
-    el.textContent = `scanned ${p.scanned||0} · updated ${p.updated||0}`;
-  } else if (prefix === 'aug') {
-    el.textContent = `found ${p.productsFound||0} · written ${p.written||0}`;
-  }
-}
-
-async function checkStatus() {
-  const btn = event.target; btn.disabled = true;
-  try {
-    const r = await fetch(BASE + '/admin/status');
-    show('status-out', await r.json());
-  } catch(e) { show('status-out', 'Error: ' + e.message); }
-  btn.disabled = false;
-}
-
-async function startJob(kind, prefix) {
-  const batchInput = document.getElementById(prefix === 'recat' ? 'recat-batch' : 'aug-batch');
-  const batch = parseInt(batchInput.value) || 100;
-  const body = kind === 'recat-catalog'
-    ? { kind, batchSize: batch }
-    : { kind, batchSizePerRetailer: batch };
-
-  const btn = event.target; btn.disabled = true;
-  try {
-    const r = await fetch(BASE + '/admin/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const state = await r.json();
-    jobs[prefix] = state.jobId;
-    document.getElementById(prefix + '-job-row').style.display = 'flex';
-    document.getElementById(prefix + '-run-btn').disabled = false;
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
-  } catch(e) { show(prefix + '-out', 'Error: ' + e.message); }
-  btn.disabled = false;
-}
-
-async function advanceJob(prefix) {
-  const jobId = jobs[prefix];
-  if (!jobId) return;
-  const btn = document.getElementById(prefix + '-run-btn');
-  btn.disabled = true; btn.textContent = 'Running…';
-  try {
-    const r = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 3 }),
-    });
-    const state = await r.json();
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
-    if (state.status === 'running') {
-      btn.disabled = false; btn.textContent = 'Advance';
-    } else {
-      btn.textContent = state.status === 'completed' ? 'Done!' : 'Failed';
-    }
-  } catch(e) {
-    show(prefix + '-out', 'Error: ' + e.message);
-    btn.disabled = false; btn.textContent = 'Advance';
-  }
-}
-
-async function pollJob() {
-  const id = document.getElementById('job-id-input').value.trim();
-  if (!id) return;
-  try {
-    const r = await fetch(BASE + '/admin/jobs/' + id);
-    show('job-poll-out', await r.json());
-  } catch(e) { show('job-poll-out', 'Error: ' + e.message); }
-}
-
-checkStatus();
-</script>
-</body>
-</html>""")
-
-
 @app.get("/admin/status")
 def admin_status():
     firestore_status = get_firestore_status()
@@ -2242,8 +1741,6 @@ async def create_admin_job(request: Request):
         config = _augment_us_retailers_job_config(body)
     elif kind == "augment-top-brands":
         config = _augment_top_brands_job_config(body)
-    elif kind == "recat-catalog":
-        config = {"batchSize": max(1, int(body.get("batchSize") or 100))}
     else:
         raise HTTPException(status_code=400, detail="Unsupported job kind")
 
@@ -2291,25 +1788,26 @@ async def augment_top_brands(request: Request):
     except Exception:
         body = {}
 
-    retailers = body.get("retailers") or ["sephora", "ulta"]
-    max_urls_per_retailer = max(
-        0,
-        int(
-            body.get("maxUrlsPerRetailer")
-            or body.get("batchSizePerRetailer")
-            or body.get("perQueryLimit")
-            or 0
-        ),
-    )
-    start_index = max(0, int(body.get("startIndex") or 0))
+    brands = body.get("brands") or None
+    categories = body.get("categories") or None
+    per_query_limit = max(1, min(int(body.get("perQueryLimit") or 40), 100))
+    start_query_index = max(0, int(body.get("startQueryIndex") or 0))
+    max_queries = max(1, min(int(body.get("maxQueries") or 0), 25)) if body.get("maxQueries") is not None else 0
 
     try:
-        result = augment_official_us_retailers(
-            retailers=retailers,
-            max_urls_per_retailer=max_urls_per_retailer,
-            start_index=start_index,
+        if max_queries:
+            return augment_firestore_catalog_with_top_brands_slice(
+                brands=brands,
+                categories=categories,
+                per_query_limit=per_query_limit,
+                start_query_index=start_query_index,
+                max_queries=max_queries,
+            )
+        result = augment_firestore_catalog_with_top_brands(
+            brands=brands,
+            categories=categories,
+            per_query_limit=per_query_limit,
         )
-        _clear_response_cache()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2327,13 +1825,11 @@ async def augment_us_retailers(request: Request):
     start_index = max(0, int(body.get("startIndex") or 0))
 
     try:
-        result = augment_official_us_retailers(
+        return augment_official_us_retailers(
             retailers=retailers,
             max_urls_per_retailer=max_urls_per_retailer,
             start_index=start_index,
         )
-        _clear_response_cache()
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2359,22 +1855,6 @@ async def cleanup_catalog(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/recat-catalog")
-async def recat_catalog(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    batch_size = max(1, int(body.get("batchSize") or 100))
-    start_after_id = str(body.get("startAfterId") or "").strip()
-
-    try:
-        return recat_firestore_catalog(batch_size=batch_size, start_after_id=start_after_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/products/search")
 def search_products(q: str, limit: int = 8):
     normalized_query = _normalize_text(q)
@@ -2384,14 +1864,13 @@ def search_products(q: str, limit: int = 8):
     if cached is not None:
         return cached
 
-    combined = _cache_get_search_candidates(
+    combined = _search_products_with_fallback(
         q,
-        local_limit=max(16, normalized_limit * 3),
+        local_limit=max(24, normalized_limit * 3),
         web_limit=max(8, normalized_limit * 2),
-        max_results=max(24, normalized_limit * 3),
+        max_results=max(32, normalized_limit * 4),
     )
-    grouped = _group_products_by_family(combined)
-    return _cache_set(cache_key, grouped[:normalized_limit])
+    return _cache_set(cache_key, combined[:normalized_limit])
 
 
 @app.get("/products/search-page")
@@ -2405,22 +1884,21 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
     if cached is not None:
         return cached
 
-    target_count = min(max(normalized_page * normalized_page_size * 2, normalized_page_size * 6, 72), 640)
-    combined = _cache_get_search_candidates(
+    target_count = min(max(normalized_page * normalized_page_size * 4, 240), 720)
+    combined = _search_products_with_fallback(
         q,
         local_limit=target_count,
-        web_limit=min(max(18, normalized_page_size * 2), 36) if normalized_page == 1 else 0,
+        web_limit=min(max(24, normalized_page_size * 2), target_count),
         max_results=target_count,
     )
-    grouped = _group_products_by_family(combined)
-    grouped.sort(key=lambda product: _product_sort_key(product, normalized_sort))
+    combined.sort(key=lambda product: _product_sort_key(product, normalized_sort))
 
-    total = len(grouped)
+    total = len(combined)
     total_pages = max(1, (total + normalized_page_size - 1) // normalized_page_size)
     safe_page = min(normalized_page, total_pages)
     start = (safe_page - 1) * normalized_page_size
     end = start + normalized_page_size
-    page_items = grouped[start:end]
+    page_items = combined[start:end]
 
     return _cache_set(cache_key, {
         "items": page_items,
@@ -2433,17 +1911,15 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
 
 @app.get("/products/category/{category_or_type}")
 def get_products_by_category(category_or_type: str, page: int = 1, page_size: int = 24, q: str = "", sort: str = "popular"):
-    normalized_page = max(page, 1)
-    normalized_page_size = max(1, min(page_size, 96))
-    cache_key = ("category", category_or_type, normalized_page, normalized_page_size, _normalize_text(q), sort)
+    cache_key = ("category", category_or_type, page, page_size, _normalize_text(q), sort)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     result = list_products_by_category(
         category_or_type,
-        limit=normalized_page_size,
-        page=normalized_page,
+        limit=page_size,
+        page=page,
         query=q,
         sort_by=sort,
     )
@@ -2458,13 +1934,12 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
             continue
         available_items.append(normalized_product)
 
+    available_items = _dedupe_products(available_items, require_image=False)
+
     return _cache_set(cache_key, {
         **result,
-        "items": _dedupe_products(available_items, require_image=False),
-        "page": result.get("page", normalized_page),
-        "pageSize": normalized_page_size,
-        "total": result.get("total", len(available_items)),
-        "totalPages": result.get("totalPages", 1),
+        "items": available_items[:page_size],
+        "total": max(result.get("total", 0), len(available_items)),
     })
 
 
@@ -2477,11 +1952,10 @@ def get_categories():
 
     counts = category_counts()
     category_meta = [
-        {"id": "face", "name": "Face", "emoji": "", "productType": "face", "color": "#F7C6D9"},
-        {"id": "lips", "name": "Lips", "emoji": "", "productType": "lips", "color": "#FFE4F0"},
         {"id": "eyes", "name": "Eyes", "emoji": "", "productType": "eyes", "color": "#FFF9F0"},
+        {"id": "lips", "name": "Lips", "emoji": "", "productType": "lips", "color": "#FFE4F0"},
+        {"id": "face", "name": "Face", "emoji": "", "productType": "face", "color": "#F7C6D9"},
         {"id": "skincare", "name": "Skincare", "emoji": "", "productType": "skincare", "color": "#FFF6F9"},
-        {"id": "nails", "name": "Nails", "emoji": "", "productType": "nails", "color": "#FFF2DC"},
         {"id": "other", "name": "Other", "emoji": "", "productType": "other", "color": "#2A0B26"},
     ]
     return _cache_set(cache_key, [
@@ -2512,41 +1986,24 @@ async def get_price_matches(request: Request):
         product_id = body.get("id", "")
         brand = body.get("brand", "")
         name = body.get("name", "")
-        family_name = body.get("familyName", "")
-        lookup_name = family_name or name
 
-        if not lookup_name:
+        if not name:
             raise HTTPException(status_code=400, detail="Product name is required")
 
-        cache_key = (
-            "price_matches",
-            product_id,
-            _normalize_text(brand),
-            _normalize_text(lookup_name),
-            _normalize_text(body.get("productUrl", "")),
-        )
+        cache_key = ("price_matches", product_id, _normalize_text(brand), _normalize_text(name))
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
 
         product = get_firestore_product_by_id(product_id) if product_id else None
-        product_url = (
-            str(body.get("productUrl") or "").strip()
-            or str((product or {}).get("productUrl") or "").strip()
-            or str((((product or {}).get("raw") or {}).get("productUrl") or "")).strip()
-        )
         stored_offers = []
         if product_id:
-            merchant_offers = (
-                (product or {}).get("merchantOffers")
-                or ((product or {}).get("raw") or {}).get("merchantOffers")
-                or []
-            )
+            merchant_offers = ((product or {}).get("raw") or {}).get("merchantOffers") or []
             for index, offer in enumerate(merchant_offers):
                 stored_offers.append({
                     "id": offer.get("id") or f"stored-offer-{index}",
-                    "retailer": offer.get("retailer") or (offer.get("url", "").split("/")[2] if "://" in str(offer.get("url") or "") else ""),
-                    "title": offer.get("title") or f"{brand} {lookup_name}".strip(),
+                    "retailer": offer.get("retailer") or "",
+                    "title": offer.get("title") or f"{brand} {name}".strip(),
                     "price": offer.get("price"),
                     "url": offer.get("url") or "",
                     "image": offer.get("image") or "",
@@ -2554,34 +2011,22 @@ async def get_price_matches(request: Request):
                     "source": offer.get("source") or "catalog",
                     "matchConfidence": offer.get("matchConfidence") or 100,
                 })
-        catalog_offers = _catalog_price_matches(brand, lookup_name, limit=12)
+        catalog_offers = _catalog_price_matches(brand, name, limit=12)
+        live_offers = find_price_matches(brand, name, product_url=body.get("productUrl", ""), limit=12)
         merged = _merge_price_offers(
             catalog_offers,
             stored_offers,
+            live_offers,
             brand=brand,
-            name=lookup_name,
+            name=name,
             limit=3,
         )
-        if len(merged) < 3:
-            try:
-                live_offers = find_price_matches(brand, lookup_name, product_url=product_url, limit=12)
-            except Exception as exc:
-                print("Live price match lookup failed:", str(exc))
-                live_offers = []
-            merged = _merge_price_offers(
-                catalog_offers,
-                stored_offers,
-                live_offers,
-                brand=brand,
-                name=lookup_name,
-                limit=3,
-            )
         if not merged:
             fallback_offer = _catalog_url_fallback_offer(
                 product,
                 brand=brand,
-                name=lookup_name,
-                fallback_url=product_url,
+                name=name,
+                fallback_url=body.get("productUrl", ""),
             )
             if fallback_offer:
                 merged = [fallback_offer]
@@ -2660,7 +2105,7 @@ async def get_dupes(request: Request):
                     "id": original_firestore.get("firestore_id", ""),
                     "image": image,
                 },
-                enrich_image=False,
+                enrich_image=True,
             )
             original = _finalize_product(original, require_image=False)
         else:
@@ -2683,6 +2128,8 @@ async def get_dupes(request: Request):
                 "skinType": "",
                 "raw": {},
             }, require_image=False)
+        original = _resolve_live_product(original) or original
+        original = _ensure_product_image(original)
 
         if not original:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -2709,9 +2156,11 @@ async def get_dupes(request: Request):
                     "id": ranked_record.get("firestore_id", ""),
                     "image": "",
                 },
-                enrich_image=False,
+                enrich_image=True,
             )
             dupe = _finalize_product(dupe, require_image=False)
+            dupe = _resolve_live_product(dupe) or dupe
+            dupe = _ensure_product_image(dupe)
             if not dupe:
                 continue
             if _is_same_product_family_variant(original_firestore or original, firestore_record or dupe_source):

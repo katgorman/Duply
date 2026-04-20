@@ -39,16 +39,35 @@ def canonical_type(value):
 
     mapping = {
         "foundation": "foundation",
+        "liquid foundation": "foundation",
+        "powder foundation": "foundation",
+        "skin tint": "skin_tint",
+        "skin_tint": "skin_tint",
+        "tinted moisturizer": "skin_tint",
+        "bb cream": "skin_tint",
+        "cc cream": "skin_tint",
         "concealer": "concealer",
         "blush": "blush",
         "bronzer": "bronzer",
+        "contour": "contour",
+        "contour stick": "contour",
         "powder": "powder",
+        "setting powder": "powder",
         "primer": "primer",
         "highlighter": "highlighter",
+        "setting spray": "setting_spray",
+        "setting_spray": "setting_spray",
         "lipstick": "lipstick",
-        "lip gloss": "lipstick",
-        "lip_gloss": "lipstick",
         "lip stain": "lipstick",
+        "lip gloss": "lip_gloss",
+        "lip_gloss": "lip_gloss",
+        "lip oil": "lip_oil",
+        "lip_oil": "lip_oil",
+        "lip liner": "lip_liner",
+        "lip_liner": "lip_liner",
+        "lip pencil": "lip_liner",
+        "lip balm": "lip_balm",
+        "lip_balm": "lip_balm",
         "eyeshadow": "eyeshadow",
         "eye shadow": "eyeshadow",
         "eyeliner": "eyeliner",
@@ -56,17 +75,40 @@ def canonical_type(value):
         "mascara": "mascara",
         "brow": "eyebrow",
         "eyebrow": "eyebrow",
+        "brow gel": "brow_gel",
+        "brow_gel": "brow_gel",
+        "eyebrow gel": "brow_gel",
+        "brow pencil": "brow_pencil",
+        "brow_pencil": "brow_pencil",
+        "eyebrow pencil": "brow_pencil",
         "nail polish": "nail_polish",
         "nail_polish": "nail_polish",
+        "nail color": "nail_polish",
+        "nail lacquer": "nail_polish",
+        "cleanser": "cleanser",
+        "face cleanser": "cleanser",
+        "moisturizer": "moisturizer",
+        "serum": "serum",
+        "sunscreen": "sunscreen",
+        "face mask": "face_mask",
+        "face_mask": "face_mask",
     }
 
     return mapping.get(value, value)
 
 
 VALID_PRODUCT_TYPES = {
+    # Face
     "foundation", "concealer", "blush", "bronzer", "powder",
-    "primer", "highlighter", "lipstick", "eyeshadow",
-    "eyeliner", "mascara", "eyebrow", "nail_polish"
+    "primer", "highlighter", "contour", "setting_spray", "skin_tint",
+    # Lips
+    "lipstick", "lip_gloss", "lip_oil", "lip_liner", "lip_balm",
+    # Eyes
+    "eyeshadow", "eyeliner", "mascara", "eyebrow", "brow_gel", "brow_pencil",
+    # Nails
+    "nail_polish",
+    # Skincare
+    "cleanser", "moisturizer", "serum", "sunscreen", "face_mask",
 }
 
 
@@ -87,22 +129,36 @@ def infer_candidate_type(product):
 
     name_rules = [
         ("foundation", "foundation"),
+        ("skin tint", "skin_tint"),
+        ("tinted moisturizer", "skin_tint"),
         ("concealer", "concealer"),
         ("blush", "blush"),
         ("bronzer", "bronzer"),
+        ("contour", "contour"),
+        ("setting spray", "setting_spray"),
         ("powder", "powder"),
         ("primer", "primer"),
         ("highlight", "highlighter"),
+        ("lip oil", "lip_oil"),
+        ("lip liner", "lip_liner"),
+        ("lip pencil", "lip_liner"),
+        ("lip balm", "lip_balm"),
+        ("lip gloss", "lip_gloss"),
+        ("gloss", "lip_gloss"),
         ("lipstick", "lipstick"),
-        ("lip gloss", "lipstick"),
-        ("gloss", "lipstick"),
         ("eyeshadow", "eyeshadow"),
         ("eye shadow", "eyeshadow"),
         ("eyeliner", "eyeliner"),
         ("eye liner", "eyeliner"),
         ("mascara", "mascara"),
+        ("brow gel", "brow_gel"),
+        ("brow pencil", "brow_pencil"),
         ("brow", "eyebrow"),
         ("nail", "nail_polish"),
+        ("cleanser", "cleanser"),
+        ("moisturizer", "moisturizer"),
+        ("serum", "serum"),
+        ("sunscreen", "sunscreen"),
     ]
 
     for needle, result in name_rules:

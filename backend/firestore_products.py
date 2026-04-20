@@ -150,30 +150,95 @@ _category_counts_cache = None
 
 
 PRODUCT_TYPE_ALIASES = {
+    # Foundation / base
     "foundation": "foundation",
     "powder foundation": "foundation",
+    "liquid foundation": "foundation",
+    "skin tint": "skin_tint",
+    "tinted moisturizer": "skin_tint",
+    "skin tint serum": "skin_tint",
+    "bb cream": "skin_tint",
+    "cc cream": "skin_tint",
+    # Concealer
     "concealer": "concealer",
+    "liquid concealer": "concealer",
+    "concealer stick": "concealer",
+    # Blush / contour / bronzer
     "blush": "blush",
     "bronzer": "bronzer",
+    "contour": "contour",
+    "contour stick": "contour",
+    "contour wand": "contour",
+    "cream contour": "contour",
+    # Powder / primer
     "powder": "powder",
+    "setting powder": "powder",
+    "pressed powder": "powder",
     "primer": "primer",
+    "face primer": "primer",
+    "gripping primer": "primer",
+    # Highlighter / setting spray
     "highlighter": "highlighter",
+    "setting spray": "setting_spray",
+    "fixing spray": "setting_spray",
+    "makeup setting spray": "setting_spray",
+    # Lip products
     "lipstick": "lipstick",
-    "lip gloss": "lipstick",
+    "matte lipstick": "lipstick",
+    "satin lipstick": "lipstick",
     "lip stain": "lipstick",
+    "lip gloss": "lip_gloss",
+    "lip_gloss": "lip_gloss",
+    "plumping lip gloss": "lip_gloss",
+    "lip oil": "lip_oil",
+    "tinted lip oil": "lip_oil",
+    "lip liner": "lip_liner",
+    "lip pencil": "lip_liner",
+    "lip balm": "lip_balm",
+    "tinted lip balm": "lip_balm",
+    "lip mask": "lip_balm",
+    # Eye products
     "eyeshadow": "eyeshadow",
     "eye shadow": "eyeshadow",
+    "eyeshadow palette": "eyeshadow",
+    "cream eyeshadow": "eyeshadow",
     "eyeliner": "eyeliner",
     "eye liner": "eyeliner",
+    "liquid eyeliner": "eyeliner",
+    "gel eyeliner": "eyeliner",
     "mascara": "mascara",
-    "brow": "eyebrow",
+    "volumizing mascara": "mascara",
+    "lengthening mascara": "mascara",
     "eyebrow": "eyebrow",
+    "brow": "eyebrow",
+    "brow makeup": "eyebrow",
+    "brow kit": "eyebrow",
+    "brow gel": "brow_gel",
+    "eyebrow gel": "brow_gel",
+    "brow pencil": "brow_pencil",
+    "eyebrow pencil": "brow_pencil",
+    # Nails
     "nail polish": "nail_polish",
+    "nail color": "nail_polish",
+    "nail lacquer": "nail_polish",
+    "nail varnish": "nail_polish",
+    "gel nail": "nail_polish",
+    # Skincare
     "face mask": "face_mask",
+    "face_mask": "face_mask",
+    "sheet mask": "face_mask",
     "cleanser": "cleanser",
+    "face cleanser": "cleanser",
     "moisturizer": "moisturizer",
+    "face moisturizer": "moisturizer",
+    "cream moisturizer": "moisturizer",
     "serum": "serum",
+    "face serum": "serum",
     "sunscreen": "sunscreen",
+    "face sunscreen": "sunscreen",
+    "spf": "sunscreen",
+    "bodywash": "bodywash",
+    "body wash": "bodywash",
 }
 
 CATEGORY_BUCKETS = {
@@ -182,12 +247,15 @@ CATEGORY_BUCKETS = {
         "eyeliner",
         "mascara",
         "eyebrow",
+        "brow_gel",
+        "brow_pencil",
     },
     "lips": {
         "lipstick",
-        "lip gloss",
         "lip_gloss",
-        "lip stain",
+        "lip_oil",
+        "lip_liner",
+        "lip_balm",
     },
     "face": {
         "foundation",
@@ -197,6 +265,9 @@ CATEGORY_BUCKETS = {
         "powder",
         "primer",
         "highlighter",
+        "contour",
+        "setting_spray",
+        "skin_tint",
     },
     "skincare": {
         "cleanser",
@@ -204,9 +275,10 @@ CATEGORY_BUCKETS = {
         "serum",
         "sunscreen",
         "face_mask",
-        "face mask",
         "bodywash",
-        "body wash",
+    },
+    "nails": {
+        "nail_polish",
     },
 }
 
@@ -530,14 +602,27 @@ def set_admin_job_state(job_id, payload):
 
 
 def _product_bucket(product):
-    product_type = normalize_product_type(product.get("subcategory") or product.get("type"))
-    product_category = normalize_product_type(product.get("category"))
-    candidates = {product_type, product_category}
+    raw_fields = [
+        product.get("subcategory"),
+        product.get("type"),
+        product.get("category"),
+        product.get("productType"),
+        (product.get("raw") or {}).get("category"),
+    ]
+    candidates = {normalize_product_type(str(f)) for f in raw_fields if f}
 
     for bucket, values in CATEGORY_BUCKETS.items():
-        normalized_values = {normalize_product_type(value) for value in values}
+        normalized_values = {normalize_product_type(v) for v in values}
         if candidates & normalized_values:
             return bucket
+
+    # Keyword fallback: scan all raw text for bucket terms
+    combined = " ".join(normalize_product_type(str(f)) for f in raw_fields if f)
+    for bucket, values in CATEGORY_BUCKETS.items():
+        for value in values:
+            keyword = normalize_product_type(value).replace("_", " ")
+            if keyword and keyword in combined.replace("_", " "):
+                return bucket
 
     return "other"
 
