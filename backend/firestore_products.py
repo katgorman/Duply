@@ -302,6 +302,16 @@ def normalize_product_type(value):
     return PRODUCT_TYPE_ALIASES.get(normalized, normalized)
 
 
+_NORMALIZED_CATEGORY_BUCKETS = {
+    bucket: {normalize_product_type(v) for v in values}
+    for bucket, values in CATEGORY_BUCKETS.items()
+}
+_CATEGORY_BUCKET_KEYWORDS = {
+    bucket: [kw for kw in (normalize_product_type(v).replace("_", " ") for v in values) if kw]
+    for bucket, values in CATEGORY_BUCKETS.items()
+}
+
+
 def _record_id(product):
     return str(product.get("id") or product.get("firestore_id") or "").strip()
 
@@ -611,17 +621,14 @@ def _product_bucket(product):
     ]
     candidates = {normalize_product_type(str(f)) for f in raw_fields if f}
 
-    for bucket, values in CATEGORY_BUCKETS.items():
-        normalized_values = {normalize_product_type(v) for v in values}
+    for bucket, normalized_values in _NORMALIZED_CATEGORY_BUCKETS.items():
         if candidates & normalized_values:
             return bucket
 
-    # Keyword fallback: scan all raw text for bucket terms
-    combined = " ".join(normalize_product_type(str(f)) for f in raw_fields if f)
-    for bucket, values in CATEGORY_BUCKETS.items():
-        for value in values:
-            keyword = normalize_product_type(value).replace("_", " ")
-            if keyword and keyword in combined.replace("_", " "):
+    combined = " ".join(normalize_product_type(str(f)) for f in raw_fields if f).replace("_", " ")
+    for bucket, keywords in _CATEGORY_BUCKET_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in combined:
                 return bucket
 
     return "other"

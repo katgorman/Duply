@@ -15,6 +15,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from firestore_products import (
     build_catalog_dedupe_key,
     category_counts,
+    db as _fs_db,
     delete_firestore_products,
     fetch_firestore_product,
     get_admin_job_state,
@@ -27,6 +28,7 @@ from firestore_products import (
     normalize_text,
     normalize_product_type,
     _product_bucket,
+    PRODUCTS_COLLECTION,
     search_firestore_products,
     set_admin_job_state,
     upsert_firestore_products,
@@ -1685,17 +1687,20 @@ def _best_recat_type(product):
 
 
 def recat_firestore_catalog(batch_size=100, start_after_id=""):
-    docs = _slice_cleanup_docs(
-        list_firestore_product_documents(),
-        max_docs=batch_size,
-        start_after_id=start_after_id,
-    )
-    if not docs:
-        return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True}
-
-    from firestore_products import db as _fs_db, PRODUCTS_COLLECTION
     if _fs_db is None:
         return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True, "error": "no-firestore"}
+
+    try:
+        query = _fs_db.collection(PRODUCTS_COLLECTION).order_by("__name__").limit(batch_size)
+        if start_after_id:
+            start_snap = _fs_db.collection(PRODUCTS_COLLECTION).document(start_after_id).get()
+            query = query.start_after(start_snap)
+        docs = list(query.stream())
+    except Exception as exc:
+        return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True, "error": str(exc)}
+
+    if not docs:
+        return {"scanned": 0, "updated": 0, "nextStartAfterId": None, "finished": True}
 
     batch = _fs_db.batch()
     updated = 0
@@ -1838,6 +1843,34 @@ def _load_admin_job_state(job_id):
     return state
 
 
+def _advance_cursor_job_state(state, result, error_message="Cursor repeated; job paused."):
+    cursor = state.get("cursor", {})
+    next_cursor = str(result.get("nextStartAfterId") or "").strip()
+    current_cursor = str(cursor.get("startAfterId") or "").strip()
+    previous_cursor = str(cursor.get("previousCursor") or "").strip()
+
+    if result.get("finished") or not next_cursor:
+        state["status"] = "completed"
+        state["completedAt"] = _job_now()
+    elif next_cursor == current_cursor or next_cursor == previous_cursor:
+        repeat_count = int(cursor.get("repeatCount") or 0) + 1
+        state["cursor"] = {
+            "startAfterId": current_cursor,
+            "previousCursor": previous_cursor,
+            "repeatCount": repeat_count,
+        }
+        state["status"] = "failed"
+        state["error"] = error_message
+    else:
+        state["status"] = "running"
+        state["cursor"] = {
+            "startAfterId": next_cursor,
+            "previousCursor": current_cursor,
+            "repeatCount": 0,
+        }
+    return state
+
+
 def _step_cleanup_job(state):
     cursor = state.get("cursor", {})
     config = state.get("config", {})
@@ -1856,30 +1889,7 @@ def _step_cleanup_job(state):
     progress["invalidRemoved"] += int(result.get("invalidRemoved") or 0)
     progress["groupsMerged"] += int(result.get("groupsMerged") or 0)
 
-    next_cursor = str(result.get("nextStartAfterId") or "").strip()
-    current_cursor = str(cursor.get("startAfterId") or "").strip()
-    previous_cursor = str(cursor.get("previousCursor") or "").strip()
-
-    if result.get("finished") or not next_cursor:
-        state["status"] = "completed"
-        state["completedAt"] = _job_now()
-    elif next_cursor == current_cursor or next_cursor == previous_cursor:
-        repeat_count = int(cursor.get("repeatCount") or 0) + 1
-        state["cursor"] = {
-            "startAfterId": current_cursor,
-            "previousCursor": previous_cursor,
-            "repeatCount": repeat_count,
-        }
-        state["status"] = "failed"
-        state["error"] = "Cleanup cursor repeated; job paused to avoid looping."
-    else:
-        state["status"] = "running"
-        state["cursor"] = {
-            "startAfterId": next_cursor,
-            "previousCursor": current_cursor,
-            "repeatCount": 0,
-        }
-
+    _advance_cursor_job_state(state, result, "Cleanup cursor repeated; job paused to avoid looping.")
     state["lastResult"] = result
     return state
 
@@ -1958,24 +1968,7 @@ def _step_recat_catalog_job(state):
     progress["scanned"] += int(result.get("scanned") or 0)
     progress["updated"] += int(result.get("updated") or 0)
 
-    next_cursor = str(result.get("nextStartAfterId") or "").strip()
-    current_cursor = str(cursor.get("startAfterId") or "").strip()
-    previous_cursor = str(cursor.get("previousCursor") or "").strip()
-
-    if result.get("finished") or not next_cursor:
-        state["status"] = "completed"
-        state["completedAt"] = _job_now()
-    elif next_cursor == current_cursor or next_cursor == previous_cursor:
-        state["status"] = "failed"
-        state["error"] = "Cursor repeated; job paused."
-    else:
-        state["status"] = "running"
-        state["cursor"] = {
-            "startAfterId": next_cursor,
-            "previousCursor": current_cursor,
-            "repeatCount": 0,
-        }
-
+    _advance_cursor_job_state(state, result)
     state["lastResult"] = result
     return state
 
@@ -2028,185 +2021,12 @@ def health():
     return {"ok": True, **get_recommendation_status()}
 
 
+_ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_ui():
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Duply Admin</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFF7FB;color:#171015;padding:24px}
-h1{font-size:22px;font-weight:800;color:#2A0B26;margin-bottom:24px}
-h2{font-size:15px;font-weight:700;color:#2A0B26;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-.card{background:#fff;border:2px solid #2A0B26;border-radius:16px;padding:20px;margin-bottom:20px;max-width:640px}
-.row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
-label{font-size:13px;font-weight:600;color:#4A2737;min-width:90px}
-input[type=number]{width:90px;padding:6px 10px;border:1px solid rgba(42,11,38,.3);border-radius:8px;font-size:14px}
-button{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-size:13px;font-weight:700;background:#2A0B26;color:#fff;transition:opacity .15s}
-button:hover{opacity:.85}
-button:disabled{opacity:.4;cursor:not-allowed}
-button.secondary{background:#FFD1E8;color:#2A0B26}
-.status{margin-top:12px;font-size:13px;background:#FFF9F0;border:1px solid rgba(42,11,38,.18);border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;display:none}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
-.badge-running{background:#FFF2DC;color:#8A5A00}
-.badge-completed{background:#d4f4e2;color:#1a6640}
-.badge-failed{background:#ffe0e0;color:#b00020}
-.badge-queued{background:#FFD1E8;color:#2A0B26}
-</style>
-</head>
-<body>
-<h1>Duply Admin</h1>
-
-<div class="card" id="card-status">
-<h2>System Status</h2>
-<button onclick="checkStatus()">Refresh Status</button>
-<pre class="status" id="status-out"></pre>
-</div>
-
-<div class="card">
-<h2>1 — Fix Miscategorized Products</h2>
-<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Re-runs category inference on all products currently stuck in "Other". No re-scraping.</p>
-<div class="row">
-  <label>Batch size</label>
-  <input type="number" id="recat-batch" value="200" min="10" max="500">
-  <button onclick="startJob('recat-catalog','recat')">Start Recat Job</button>
-</div>
-<div class="row" id="recat-job-row" style="display:none">
-  <span id="recat-badge" class="badge"></span>
-  <button class="secondary" id="recat-run-btn" onclick="advanceJob('recat')" disabled>Advance</button>
-  <span id="recat-progress" style="font-size:13px;color:#4A2737"></span>
-</div>
-<pre class="status" id="recat-out"></pre>
-</div>
-
-<div class="card">
-<h2>2 — Augment Sephora + Ulta</h2>
-<p style="font-size:13px;color:#4A2737;margin-bottom:14px">Crawl product sitemaps and write new products to Firestore.</p>
-<div class="row">
-  <label>Batch/retailer</label>
-  <input type="number" id="aug-batch" value="100" min="10" max="500">
-  <button onclick="startJob('augment-us-retailers','aug')">Start Augment Job</button>
-</div>
-<div class="row" id="aug-job-row" style="display:none">
-  <span id="aug-badge" class="badge"></span>
-  <button class="secondary" id="aug-run-btn" onclick="advanceJob('aug')" disabled>Advance</button>
-  <span id="aug-progress" style="font-size:13px;color:#4A2737"></span>
-</div>
-<pre class="status" id="aug-out"></pre>
-</div>
-
-<div class="card">
-<h2>Active Jobs</h2>
-<div class="row">
-  <input type="text" id="job-id-input" placeholder="Job ID" style="flex:1;padding:6px 10px;border:1px solid rgba(42,11,38,.3);border-radius:8px;font-size:14px">
-  <button onclick="pollJob()">Check Job</button>
-</div>
-<pre class="status" id="job-poll-out"></pre>
-</div>
-
-<script>
-const BASE = window.location.origin;
-const jobs = {};
-
-function show(id, text) {
-  const el = document.getElementById(id);
-  el.style.display = 'block';
-  el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
-}
-
-function setBadge(prefix, status) {
-  const b = document.getElementById(prefix + '-badge');
-  b.className = 'badge badge-' + (status || 'queued');
-  b.textContent = status || 'queued';
-}
-
-function setProgress(prefix, state) {
-  const p = state.progress || {};
-  const el = document.getElementById(prefix + '-progress');
-  if (!el) return;
-  if (prefix === 'recat') {
-    el.textContent = `scanned ${p.scanned||0} · updated ${p.updated||0}`;
-  } else if (prefix === 'aug') {
-    el.textContent = `found ${p.productsFound||0} · written ${p.written||0}`;
-  }
-}
-
-async function checkStatus() {
-  const btn = event.target; btn.disabled = true;
-  try {
-    const r = await fetch(BASE + '/admin/status');
-    show('status-out', await r.json());
-  } catch(e) { show('status-out', 'Error: ' + e.message); }
-  btn.disabled = false;
-}
-
-async function startJob(kind, prefix) {
-  const batchInput = document.getElementById(prefix === 'recat' ? 'recat-batch' : 'aug-batch');
-  const batch = parseInt(batchInput.value) || 100;
-  const body = kind === 'recat-catalog'
-    ? { kind, batchSize: batch }
-    : { kind, batchSizePerRetailer: batch };
-
-  const btn = event.target; btn.disabled = true;
-  try {
-    const r = await fetch(BASE + '/admin/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const state = await r.json();
-    jobs[prefix] = state.jobId;
-    document.getElementById(prefix + '-job-row').style.display = 'flex';
-    document.getElementById(prefix + '-run-btn').disabled = false;
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
-  } catch(e) { show(prefix + '-out', 'Error: ' + e.message); }
-  btn.disabled = false;
-}
-
-async function advanceJob(prefix) {
-  const jobId = jobs[prefix];
-  if (!jobId) return;
-  const btn = document.getElementById(prefix + '-run-btn');
-  btn.disabled = true; btn.textContent = 'Running…';
-  try {
-    const r = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 3 }),
-    });
-    const state = await r.json();
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
-    if (state.status === 'running') {
-      btn.disabled = false; btn.textContent = 'Advance';
-    } else {
-      btn.textContent = state.status === 'completed' ? 'Done!' : 'Failed';
-    }
-  } catch(e) {
-    show(prefix + '-out', 'Error: ' + e.message);
-    btn.disabled = false; btn.textContent = 'Advance';
-  }
-}
-
-async function pollJob() {
-  const id = document.getElementById('job-id-input').value.trim();
-  if (!id) return;
-  try {
-    const r = await fetch(BASE + '/admin/jobs/' + id);
-    show('job-poll-out', await r.json());
-  } catch(e) { show('job-poll-out', 'Error: ' + e.message); }
-}
-
-checkStatus();
-</script>
-</body>
-</html>""")
+    return HTMLResponse(content=_ADMIN_HTML_PATH.read_text(encoding="utf-8"))
 
 
 @app.get("/admin/status")

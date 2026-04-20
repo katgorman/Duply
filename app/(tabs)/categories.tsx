@@ -244,12 +244,16 @@ export default function CategoriesScreen() {
   });
 
   const categories = data?.length ? data : FALLBACK_CATEGORIES;
-  const moodLanes = [
-    { ...MOOD_LANES[0], items: facePreview?.items || [], loading: facePreviewLoading },
-    { ...MOOD_LANES[1], items: lipsPreview?.items || [], loading: lipsPreviewLoading },
-    { ...MOOD_LANES[2], items: eyesPreview?.items || [], loading: eyesPreviewLoading },
-    { ...MOOD_LANES[3], items: skincarePreview?.items || [], loading: skincarePreviewLoading },
-  ];
+  const previewData: Record<string, { items: Product[]; loading: boolean }> = {
+    face: { items: facePreview?.items ?? [], loading: facePreviewLoading },
+    lips: { items: lipsPreview?.items ?? [], loading: lipsPreviewLoading },
+    eyes: { items: eyesPreview?.items ?? [], loading: eyesPreviewLoading },
+    skincare: { items: skincarePreview?.items ?? [], loading: skincarePreviewLoading },
+  };
+  const moodLanes = MOOD_LANES.map(lane => ({
+    ...lane,
+    ...(previewData[lane.category] ?? { items: [], loading: false }),
+  }));
   const standoutDupes = [...(featuredDupes || [])]
     .sort((left, right) => right.savings - left.savings || right.similarity - left.similarity)
     .slice(0, 3);
