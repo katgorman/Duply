@@ -79,6 +79,15 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <script>
 const BASE = window.location.origin;
 const jobs = {};
+const JOB_PREFIX_BY_KIND = {
+  'recat-catalog': 'recat',
+  'augment-us-retailers': 'aug',
+  'augment-top-brands': 'aug',
+};
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function show(id, text) {
   const el = document.getElementById(id);
@@ -101,6 +110,26 @@ function setProgress(prefix, state) {
   } else if (prefix === 'aug') {
     el.textContent = `found ${progress.productsFound || 0} - written ${progress.written || 0}`;
   }
+}
+
+function rememberJob(prefix, state) {
+  if (!prefix || !state) return;
+  if (state.jobId) {
+    jobs[prefix] = state.jobId;
+    document.getElementById('job-id-input').value = state.jobId;
+  }
+  const row = document.getElementById(prefix + '-job-row');
+  if (row) row.style.display = 'flex';
+  setBadge(prefix, state.status);
+  setProgress(prefix, state);
+  show(prefix + '-out', state);
+}
+
+function setRunButton(prefix, text, disabled) {
+  const btn = document.getElementById(prefix + '-run-btn');
+  if (!btn) return;
+  btn.textContent = text;
+  btn.disabled = !!disabled;
 }
 
 async function checkStatus(btn) {
@@ -133,12 +162,8 @@ async function startJob(btn, kind, prefix) {
     if (!response.ok) {
       throw new Error(state?.detail || state?.error || 'Failed to create job');
     }
-    jobs[prefix] = state.jobId;
-    document.getElementById(prefix + '-job-row').style.display = 'flex';
-    document.getElementById(prefix + '-run-btn').disabled = false;
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
+    rememberJob(prefix, state);
+    await autoRunJob(prefix);
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
   }
@@ -148,29 +173,42 @@ async function startJob(btn, kind, prefix) {
 async function advanceJob(prefix) {
   const jobId = jobs[prefix];
   if (!jobId) return;
-  const btn = document.getElementById(prefix + '-run-btn');
-  btn.disabled = true;
-  btn.textContent = 'Running...';
+  setRunButton(prefix, 'Running...', true);
   try {
     const response = await fetch(BASE + '/admin/jobs/' + jobId + '/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 3 }),
+      body: JSON.stringify({ maxSteps: 8 }),
     });
     const state = await response.json();
-    setBadge(prefix, state.status);
-    setProgress(prefix, state);
-    show(prefix + '-out', state);
-    if (state.status === 'running') {
-      btn.disabled = false;
-      btn.textContent = 'Advance';
-    } else {
-      btn.textContent = state.status === 'completed' ? 'Done!' : 'Failed';
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Failed to run job');
     }
+    rememberJob(prefix, state);
+    if (state.status === 'running') {
+      setRunButton(prefix, 'Resume', false);
+    } else {
+      setRunButton(prefix, state.status === 'completed' ? 'Done!' : 'Failed', state.status === 'completed');
+    }
+    return state;
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
-    btn.disabled = false;
-    btn.textContent = 'Advance';
+    setRunButton(prefix, 'Retry', false);
+    throw error;
+  }
+}
+
+async function autoRunJob(prefix) {
+  const jobId = jobs[prefix];
+  if (!jobId) return null;
+
+  let state = null;
+  while (true) {
+    state = await advanceJob(prefix);
+    if (!state || state.status !== 'running') {
+      return state;
+    }
+    await sleep(250);
   }
 }
 
@@ -178,8 +216,21 @@ async function pollJob() {
   const id = document.getElementById('job-id-input').value.trim();
   if (!id) return;
   try {
+    show('job-poll-out', 'Loading...');
     const response = await fetch(BASE + '/admin/jobs/' + id);
-    show('job-poll-out', await response.json());
+    const state = await response.json();
+    if (!response.ok) {
+      throw new Error(state?.detail || state?.error || 'Job not found');
+    }
+    show('job-poll-out', state);
+
+    const prefix = JOB_PREFIX_BY_KIND[state.kind];
+    if (prefix) {
+      rememberJob(prefix, state);
+      if (state.status === 'running' || state.status === 'queued') {
+        await autoRunJob(prefix);
+      }
+    }
   } catch (error) {
     show('job-poll-out', 'Error: ' + error.message);
   }
