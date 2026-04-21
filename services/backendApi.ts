@@ -139,6 +139,38 @@ function buildPriceMatchesCacheKey(product: Product) {
   return `priceMatches:${JSON.stringify(payload)}`;
 }
 
+function isSupportedPriceMatchUrl(url: string | undefined | null): boolean {
+  const trimmed = (url || '').trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname;
+
+    if ((hostname === 'www.sephora.com' || hostname === 'sephora.com') && /^\/product\/[^?#]+$/i.test(pathname)) {
+      return true;
+    }
+
+    if ((hostname === 'www.ulta.com' || hostname === 'ulta.com') && /^\/p\/[^?#]+$/i.test(pathname)) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizePriceOffers(offers: PriceOffer[] | null | undefined): PriceOffer[] {
+  return (offers || []).filter(offer => {
+    const url = (offer?.url || '').trim();
+    return Number.isFinite(offer?.price) && (offer?.price || 0) > 0 && isSupportedPriceMatchUrl(url);
+  });
+}
+
 export function getCachedCategoryPage(
   category: string,
   options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},
@@ -168,7 +200,16 @@ export function getCachedDupesForProduct(product: Product | null | undefined) {
 
 export function getCachedPriceMatchesForProduct(product: Product | null | undefined) {
   if (!product) return null;
-  return getCachedValue<PriceOffer[]>(buildPriceMatchesCacheKey(product));
+  const cacheKey = buildPriceMatchesCacheKey(product);
+  const cached = getCachedValue<PriceOffer[]>(cacheKey);
+  if (cached === null) {
+    return null;
+  }
+  const sanitized = sanitizePriceOffers(cached);
+  if (sanitized.length !== cached.length) {
+    setCachedValue(cacheKey, sanitized, CACHE_TTL_MS.priceMatches);
+  }
+  return sanitized;
 }
 
 function getCachedValue<T>(key: string): T | null {
@@ -533,7 +574,11 @@ export async function findPriceMatchesFromBackend(product: Product): Promise<Pri
       productType: product.productType,
       productUrl: product.productUrl,
     }),
-  }, cacheKey, CACHE_TTL_MS.priceMatches).catch(error => {
+  }, cacheKey, CACHE_TTL_MS.priceMatches).then(offers => {
+    const sanitized = sanitizePriceOffers(offers);
+    setCachedValue(cacheKey, sanitized, CACHE_TTL_MS.priceMatches);
+    return sanitized;
+  }).catch(error => {
     const message = error instanceof Error ? error.message : String(error);
     if (
       message.includes('Backend error 404')

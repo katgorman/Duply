@@ -288,6 +288,19 @@ def is_approved_retailer_url(url):
     return url.startswith(("http://", "https://")) and "." in domain and _is_us_domain(domain)
 
 
+def is_supported_price_match_url(url):
+    url = str(url or "").strip()
+    if not is_approved_retailer_url(url):
+        return False
+
+    for config in OFFICIAL_US_RETAILERS.values():
+        pattern = config.get("productUrlPattern") or ""
+        if pattern and re.match(pattern, url, flags=re.IGNORECASE):
+            return True
+
+    return False
+
+
 def _clean_product_title(title, retailer=""):
     cleaned = html.unescape(str(title or "").strip())
     for suffix in (OFFICIAL_US_RETAILERS.get(normalize_text(retailer), {}) or {}).get("siteSuffixes", []):

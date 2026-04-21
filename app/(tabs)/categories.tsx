@@ -516,6 +516,7 @@ const styles = StyleSheet.create({
   categoryBottomRow: {
     flex: 1,
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
     gap: spacing.sm,
   },
   categoryName: {
@@ -523,7 +524,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     textTransform: 'uppercase',
     maxWidth: '100%',
+    width: '100%',
     lineHeight: 28,
+    textAlign: 'right',
   },
   categoryNameDark: {
     color: colors.surface,
@@ -531,13 +534,14 @@ const styles = StyleSheet.create({
   categoryFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: spacing.sm,
   },
   categoryMeta: {
     ...typography.captionBold,
     color: colors.textSecondary,
     textTransform: 'uppercase',
+    textAlign: 'right',
   },
   categoryMetaDark: {
     color: colors.cream,
@@ -646,14 +650,15 @@ const styles = StyleSheet.create({
   collectionTagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     gap: spacing.sm,
     marginTop: spacing.md,
   },
   collectionTag: {
     borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     maxWidth: '100%',
@@ -661,6 +666,7 @@ const styles = StyleSheet.create({
   collectionTagText: {
     ...typography.small,
     color: colors.textSecondary,
+    textAlign: 'right',
   },
   collectionEmptyBox: {
     marginTop: spacing.md,

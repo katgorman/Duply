@@ -12,6 +12,12 @@ import web_products as wp
 
 
 class AugmentedSearchPriceTests(unittest.TestCase):
+    def test_supported_price_match_urls_require_official_product_pages(self):
+        self.assertTrue(wp.is_supported_price_match_url("https://www.sephora.com/product/test-product-P12345"))
+        self.assertTrue(wp.is_supported_price_match_url("https://www.ulta.com/p/test-product?sku=1234567"))
+        self.assertFalse(wp.is_supported_price_match_url("https://sephora.nnnow.com/test-product"))
+        self.assertFalse(wp.is_supported_price_match_url("https://www.example.com/product/test-product"))
+
     def test_extract_embedded_page_price_from_constructor_markup(self):
         html = '<div data-cnstrc-item-price="$22.00"></div>'
         self.assertEqual(wp._extract_embedded_page_price(html), 22.0)

@@ -45,6 +45,7 @@ from web_products import (
     _infer_product_type,
     is_approved_retailer_url,
     is_live_product_url,
+    is_supported_price_match_url,
     search_web_products,
     title_match_confidence,
 )
@@ -1199,7 +1200,7 @@ def _normalize_price_offer(offer, brand="", name="", check_live_url=True):
     price = _normalize_price(offer.get("price"))
     if not url or price <= 0:
         return None
-    if not is_approved_retailer_url(url):
+    if not is_supported_price_match_url(url):
         return None
     if check_live_url and not is_live_product_url(url):
         return None
@@ -1302,6 +1303,8 @@ def _catalog_url_fallback_offer(product, brand="", name="", fallback_url=""):
         or ""
     ).strip()
     if not url:
+        return None
+    if not is_supported_price_match_url(url):
         return None
 
     price = _normalize_price(product.get("price"))

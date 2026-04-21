@@ -86,6 +86,26 @@ function toTitleCase(value?: string) {
     .join(' ');
 }
 
+function isSupportedPriceMatchUrl(url?: string) {
+  const trimmed = (url || '').trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname;
+
+    return (
+      ((hostname === 'www.sephora.com' || hostname === 'sephora.com') && /^\/product\/[^?#]+$/i.test(pathname))
+      || ((hostname === 'www.ulta.com' || hostname === 'ulta.com') && /^\/p\/[^?#]+$/i.test(pathname))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function ProductDetailsScreen() {
   const router = useRouter();
   const { addRecentView } = useActivity();
@@ -375,7 +395,7 @@ export default function ProductDetailsScreen() {
   };
 
   const openOffer = (offer: PriceOffer) => {
-    if (offer.url) {
+    if (isSupportedPriceMatchUrl(offer.url)) {
       Linking.openURL(offer.url);
     }
   };
@@ -415,6 +435,7 @@ export default function ProductDetailsScreen() {
   const comparisonStats = isComparisonView && dupeProduct
     ? buildComparisonStats(original, dupeProduct)
     : [];
+  const visiblePriceOffers = priceOffers.filter(offer => isSupportedPriceMatchUrl(offer.url));
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -562,8 +583,8 @@ export default function ProductDetailsScreen() {
                 <View>
                   <Text style={styles.priceMatchEyebrow}>Top 3 live retailer offers</Text>
                   <Text style={styles.priceMatchTitle}>
-                    {priceOffers[0]
-                      ? `$${priceOffers[0].price.toFixed(2)} at ${priceOffers[0].retailer}`
+                    {visiblePriceOffers[0]
+                      ? `$${visiblePriceOffers[0].price.toFixed(2)} at ${visiblePriceOffers[0].retailer}`
                       : priceOffersLoading
                         ? 'Scanning live retailers'
                         : 'No live offers found'}
@@ -573,7 +594,7 @@ export default function ProductDetailsScreen() {
                   <View style={styles.priceMatchStatusPill}>
                     <ActivityIndicator size="small" color={colors.primary} />
                     <Text style={styles.priceMatchStatus}>
-                      {priceOffers.length > 0 ? 'Refreshing live offers' : 'Scanning retailers'}
+                      {visiblePriceOffers.length > 0 ? 'Refreshing live offers' : 'Scanning retailers'}
                     </Text>
                   </View>
                 ) : null}
@@ -581,15 +602,15 @@ export default function ProductDetailsScreen() {
 
               {priceOffersError ? <Text style={styles.priceMatchError}>{priceOffersError}</Text> : null}
 
-              {priceOffersLoading && priceOffers.length === 0 ? (
+              {priceOffersLoading && visiblePriceOffers.length === 0 ? (
                 <PriceMatchLoader />
               ) : null}
 
-              {!priceOffersLoading && !priceOffersError && priceOffers.length === 0 ? (
+              {!priceOffersLoading && !priceOffersError && visiblePriceOffers.length === 0 ? (
                 <Text style={styles.priceMatchEmpty}>No live shopping links found right now.</Text>
               ) : null}
 
-              {priceOffers.slice(0, 3).map((offer, index) => (
+              {visiblePriceOffers.slice(0, 3).map((offer, index) => (
                 <TouchableOpacity
                   key={offer.id}
                   activeOpacity={0.86}

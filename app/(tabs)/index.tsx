@@ -1,15 +1,8 @@
 import { Asset } from 'expo-asset';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import Animated, {
-  Easing,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import React, { useState } from 'react';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Search, TrendingUp } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SvgUri } from 'react-native-svg';
@@ -23,45 +16,12 @@ import { prefetchDupesForProduct, seedProductCache } from '../../services/api';
 const BRAND_LOGO_URI = Asset.fromModule(require('../../assets/images/duply-logo-background.svg')).uri;
 const BRAND_WORDMARK_URI = Asset.fromModule(require('../../assets/images/duply-logo-text.svg')).uri;
 
-function MarqueeLogo() {
-  return (
-    <View style={styles.marqueeLogoFrame}>
-      <SvgUri uri={BRAND_WORDMARK_URI} width="100%" height="100%" />
-    </View>
-  );
-}
-
 export default function HomeScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
   const [query, setQuery] = useState('');
   const { results, loading: searchLoading, error: searchError, search } = useSearch();
   const { recentViews, loaded: activityLoaded, addRecentSearch } = useActivity();
   const showingSuggestions = query.trim().length > 1;
-  const marqueeOffset = useSharedValue(0);
-  const marqueeItemWidth = 120;
-  const marqueeRepeatCount = Math.max(8, Math.ceil(width / marqueeItemWidth) + 4);
-  const marqueeTrackWidth = marqueeItemWidth * marqueeRepeatCount;
-
-  useEffect(() => {
-    marqueeOffset.value = 0;
-    marqueeOffset.value = withRepeat(
-      withTiming(-marqueeTrackWidth, {
-        duration: 22000,
-        easing: Easing.linear,
-      }),
-      -1,
-      false
-    );
-  }, [marqueeOffset, marqueeTrackWidth]);
-
-  const marqueeTrackStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: marqueeOffset.value }],
-  }));
-
-  const marqueeTrackCloneStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: marqueeOffset.value + marqueeTrackWidth }],
-  }));
 
   const openProduct = (id: string, name: string) => {
     const selected = results.find(item => item.id === id);
@@ -101,19 +61,6 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.marqueeBand} pointerEvents="none">
-          <Animated.View style={[styles.marqueeTrack, marqueeTrackStyle]}>
-            {Array.from({ length: marqueeRepeatCount }, (_, index) => (
-              <MarqueeLogo key={`duply-track-a-${index}`} />
-            ))}
-          </Animated.View>
-          <Animated.View style={[styles.marqueeTrack, marqueeTrackStyle, styles.marqueeTrackClone, marqueeTrackCloneStyle]}>
-            {Array.from({ length: marqueeRepeatCount }, (_, index) => (
-              <MarqueeLogo key={`duply-track-b-${index}`} />
-            ))}
-          </Animated.View>
-        </View>
-
         <View style={styles.hero}>
           <View>
             <Text style={styles.heading}>Find Your{'\n'}Perfect Dupe</Text>
@@ -355,39 +302,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
-  marqueeBand: {
-    height: 60,
-    overflow: 'hidden',
-    borderBottomWidth: 2,
-    borderBottomColor: colors.primary,
-    backgroundColor: colors.cream,
-    justifyContent: 'center',
-  },
-  marqueeTrack: {
-    position: 'absolute',
-    left: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  marqueeTrackClone: {
-    left: 0,
-  },
-  marqueeLogoFrame: {
-    width: 120,
-    height: 52,
-    overflow: 'hidden',
-    opacity: 0.42,
-  },
-  marqueeLogoImage: {
-    width: 250,
-    height: 78,
-    marginLeft: -58,
-    marginTop: -10,
-  },
   hero: {
     backgroundColor: colors.accentLight,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxxl,
+    paddingTop: spacing.xxl,
     paddingBottom: spacing.xxl,
     alignItems: 'center',
     overflow: 'visible',
