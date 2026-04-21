@@ -29,17 +29,17 @@ const DUPE_STAGE_COPY: Record<DupeStage, { badge: string; title: string; descrip
   resolving: {
     badge: 'Loading source',
     title: 'Pulling in the source product',
-    description: 'We are locking onto the product you picked so the dupe rank starts from the right item.',
+    description: 'Locating the product in our catalog so the match engine starts from the right baseline. This usually takes 5–15 seconds.',
   },
   matching: {
-    badge: 'Scoring matches',
-    title: 'Comparing the catalog',
-    description: 'We are scoring similar formulas, shades, and pricing so the strongest dupes bubble up first.',
+    badge: 'Running AI match',
+    title: 'Comparing the full catalog',
+    description: 'Our AI model is scoring thousands of products against the source — formula, category, price, and rating all factor in. Hang tight.',
   },
   finalizing: {
     badge: 'Finalizing list',
-    title: 'Wrapping up the shortlist',
-    description: 'We are sorting the best matches and getting the list ready for browsing.',
+    title: 'Ranking the shortlist',
+    description: 'Sorting the strongest matches to the top and filtering out near-identical variants. Almost there.',
   },
 };
 
@@ -128,6 +128,12 @@ function DupeLoader({
             </View>
           );
         })}
+      </View>
+
+      <View style={styles.loadingTimingNote}>
+        <Text style={styles.loadingTimingNoteText}>
+          Dupe matching runs a real AI model — first results typically arrive in 5–15 seconds.
+        </Text>
       </View>
 
       {[0, 1, 2].map(index => (
@@ -598,6 +604,15 @@ const styles = StyleSheet.create({
   },
   loadingTimelineTextComplete: {
     color: colors.textSecondary,
+  },
+  loadingTimingNote: {
+    paddingHorizontal: spacing.sm,
+  },
+  loadingTimingNoteText: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   loadingCard: {
     flexDirection: 'row',

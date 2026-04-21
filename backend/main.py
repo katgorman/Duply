@@ -2474,16 +2474,17 @@ async def get_dupes(request: Request):
         query = f"{brand} {name}".strip()
 
         # Run model lookups and original Firestore fetch concurrently
+        _original_query = {
+            "brand": brand,
+            "product_name": name,
+            "category": category,
+            "subcategory": product_type,
+            "type": product_type,
+        }
         with ThreadPoolExecutor(max_workers=3) as _ex:
-            _f_lookup = _ex.submit(lookup_product, query, product_type)
-            _f_model = _ex.submit(find_dupes, query, product_type)
-            _f_original = _ex.submit(fetch_firestore_product, {
-                "brand": brand,
-                "product_name": name,
-                "category": category,
-                "subcategory": product_type,
-                "type": product_type,
-            })
+            _f_lookup = _ex.submit(lookup_product, query, preferred_type=product_type)
+            _f_model = _ex.submit(find_dupes, query, preferred_type=product_type)
+            _f_original = _ex.submit(fetch_firestore_product, _original_query)
             matched_product = _f_lookup.result()
             model_results = _f_model.result()
             original_firestore = _f_original.result()
