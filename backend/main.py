@@ -76,6 +76,7 @@ ADMIN_JOB_DEFAULT_MAX_STEPS = 1
 ADMIN_JOB_MAX_STEPS_LIMIT = 25
 SEARCH_LIVE_FALLBACK_MODE = (os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MODE", "when-empty").strip().lower() or "when-empty")
 SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS = max(0, int(os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS", "0")))
+LIVE_PRICE_MATCHES_ENABLED = os.getenv("DUPLY_ENABLE_LIVE_PRICE_MATCHES", "").strip().lower() in {"1", "true", "yes", "on"}
 _response_cache = {}
 
 
@@ -846,13 +847,6 @@ def _coerce_to_display_product(record, fallback=None, enrich_image=False):
     if not normalized_product:
         return None
 
-    if _is_product_available(normalized_product):
-        return normalized_product
-
-    resolved_product = _resolve_live_product(normalized_product)
-    if resolved_product:
-        return _with_family_metadata(_finalize_product(resolved_product, require_image=False), normalized_product)
-
     return normalized_product
 
 
@@ -862,14 +856,7 @@ def _coerce_to_search_product(record, fallback=None, enrich_image=False):
     if not normalized_product:
         return None
 
-    if _is_product_available(normalized_product):
-        return normalized_product
-
-    resolved_product = _resolve_live_product(normalized_product)
-    if not resolved_product:
-        return None
-
-    return _with_family_metadata(_finalize_product(resolved_product, require_image=False), normalized_product)
+    return normalized_product
 
 
 def _directly_available_product(record, fallback=None, enrich_image=False, require_image=True):
@@ -1140,7 +1127,7 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         )
         if key in seen:
             continue
-        normalized_product = _search_ready_product(
+        normalized_product = _coerce_to_search_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
         )
@@ -2280,7 +2267,7 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
     )
     available_items = []
     for product in result["items"]:
-        normalized_product = _search_ready_product(
+        normalized_product = _coerce_to_search_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
             enrich_image=False,
@@ -2325,7 +2312,7 @@ def _legacy_category_products(category_or_type: str):
     result = list_products_by_category(category_or_type, limit=24, page=1)
     available_items = []
     for product in result["items"]:
-        normalized_product = _search_ready_product(
+        normalized_product = _coerce_to_search_product(
             product,
             fallback={"id": product.get("firestore_id", "")},
             enrich_image=False,
@@ -2393,7 +2380,7 @@ async def get_price_matches(request: Request):
             name=lookup_name,
             limit=3,
         )
-        if len(merged) < 3:
+        if not merged and LIVE_PRICE_MATCHES_ENABLED:
             try:
                 live_offers = find_price_matches(brand, lookup_name, product_url=product_url, limit=12)
             except Exception as exc:

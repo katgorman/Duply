@@ -79,6 +79,42 @@ cd backend
 .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+## Run Augmentation Locally
+
+To avoid using Render resources, start the backend locally and point the admin/job runner at `127.0.0.1`.
+
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Add your Firebase credentials to `backend/.env` if you want augmentation writes to go to Firestore.
+3. Keep `DUPLY_OFFICIAL_RETAILER_MAX_WORKERS=1` in that local file unless you know your machine has extra headroom.
+4. Start the backend on `http://127.0.0.1:8000`.
+
+Then you can either:
+
+- Open `http://127.0.0.1:8000/admin` and run the augment job from the admin UI.
+- Or run the local job runner from the repo root:
+
+```bash
+npm run crawl:local
+```
+
+You can optionally pass a smaller batch size, max steps per request, and poll interval:
+
+```bash
+node ./scripts/run-local-augment.js 10 1 15000
+```
+
+That command means:
+
+- `10`: batch size per retailer
+- `1`: max job steps per `/run` request
+- `15000`: wait 15 seconds between requests
+
+For local web development, the frontend already auto-targets `http://127.0.0.1:8000` when opened on localhost. If you want to force it explicitly, set:
+
+```text
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
 ## Run The Frontend
 
 From the repo root:

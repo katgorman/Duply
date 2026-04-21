@@ -5,6 +5,7 @@ import json
 import hashlib
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Iterable
 
 try:
@@ -137,8 +138,17 @@ ADMIN_JOB_CACHE_KIND = "admin-job-state"
 CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "21600"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
 WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
+FIRESTORE_READ_TIMEOUT_SECONDS = max(1.0, float(os.getenv("FIRESTORE_READ_TIMEOUT_SECONDS", "2.5")))
 _search_cache = {}
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
+NON_US_COUNTRY_TLDS = {
+    ".ae", ".au", ".be", ".br", ".ca", ".ch", ".cn", ".de", ".dk", ".es",
+    ".eu", ".fr", ".hk", ".ie", ".in", ".it", ".jp", ".kr", ".mx", ".nl",
+    ".no", ".nz", ".pl", ".se", ".sg", ".tr", ".tw", ".uk", ".vn", ".za",
+}
+GENERIC_RETAILER_TLDS = {
+    ".com", ".us", ".net", ".org", ".shop", ".store", ".beauty", ".makeup", ".cosmetics", ".co",
+}
 _metadata_products = None
 _metadata_products_by_id = None
 _catalog_products = None
@@ -556,13 +566,15 @@ def get_firestore_web_cache(cache_kind, cache_key, max_age_seconds=WEB_CACHE_TTL
     if db is None or not cache_kind or not cache_key:
         return None
 
-    try:
-        doc = (
+    doc = _run_firestore_read(
+        lambda: (
             db.collection(WEB_CACHE_COLLECTION)
             .document(build_web_cache_id(cache_kind, cache_key))
             .get()
-        )
-    except Exception:
+        ),
+        None,
+    )
+    if doc is None:
         return None
 
     if not doc.exists:
@@ -652,6 +664,55 @@ def _prepare_catalog_product(product):
     normalized["_bucket"] = _product_bucket(normalized)
     normalized["_popularity"] = _safe_float(normalized.get("noofratings")) + (_safe_float(normalized.get("rating")) * 100)
     return normalized
+
+
+def _run_firestore_read(callable_obj, default):
+    if db is None:
+        return default
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(callable_obj)
+    try:
+        return future.result(timeout=FIRESTORE_READ_TIMEOUT_SECONDS)
+    except (FutureTimeoutError, Exception):
+        future.cancel()
+        return default
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _catalog_product_url(product):
+    raw = product.get("raw", {}) if isinstance(product.get("raw"), dict) else {}
+    return str(
+        product.get("productUrl")
+        or product.get("title-href")
+        or raw.get("productUrl")
+        or raw.get("title-href")
+        or ""
+    ).strip()
+
+
+def _source_domain(url):
+    match = re.search(r"https?://(?:www\.)?([^/?#]+)", str(url or ""), flags=re.IGNORECASE)
+    return match.group(1).lower() if match else ""
+
+
+def _is_us_domain(domain):
+    domain = normalize_text(domain)
+    if not domain:
+        return False
+    if any(domain.endswith(tld) for tld in NON_US_COUNTRY_TLDS):
+        return False
+    return any(domain.endswith(tld) for tld in GENERIC_RETAILER_TLDS)
+
+
+def _is_searchable_catalog_product(product):
+    product_url = _catalog_product_url(product)
+    if not product_url:
+        return True
+
+    domain = _source_domain(product_url)
+    return product_url.startswith(("http://", "https://")) and "." in domain and _is_us_domain(domain)
 
 
 def _candidate_values(record, keys):
@@ -744,29 +805,27 @@ def _query_by_field(field, value, limit=10):
     if not value or db is None:
         return []
 
-    try:
-        docs = db.collection(PRODUCTS_COLLECTION).where(field, "==", value).limit(limit).stream()
-        return list(docs)
-    except Exception:
-        return []
+    return _run_firestore_read(
+        lambda: list(db.collection(PRODUCTS_COLLECTION).where(field, "==", value).limit(limit).stream()),
+        [],
+    )
 
 
 def _prefix_query(field, value, limit=15):
     if not value or db is None:
         return []
 
-    try:
-        docs = (
+    return _run_firestore_read(
+        lambda: list(
             db.collection(PRODUCTS_COLLECTION)
             .order_by(field)
             .start_at([value])
             .end_at([f"{value}\uf8ff"])
             .limit(limit)
             .stream()
-        )
-        return list(docs)
-    except Exception:
-        return []
+        ),
+        [],
+    )
 
 
 def _brand_variants(query):
@@ -998,8 +1057,11 @@ def _load_metadata_products():
             "price": normalize_catalog_price(item.get("price") or 0),
             "rating": item.get("rating") or 0,
             "image": item.get("image") or item.get("image_link") or "",
+            "productUrl": item.get("productUrl") or item.get("title-href") or "",
             "raw": item,
         }
+        if not _is_searchable_catalog_product(normalized):
+            continue
         prepared = _prepare_catalog_product(normalized)
         normalized_items.append(prepared)
         by_id[prepared["firestore_id"]] = prepared
@@ -1079,13 +1141,12 @@ def get_firestore_product_by_id(doc_id):
     if catalog_product:
         return catalog_product
 
-    try:
-        if db is not None:
-            doc = db.collection(PRODUCTS_COLLECTION).document(doc_id).get()
-            if doc.exists:
-                return _normalize_catalog_record(doc.to_dict() or {}, doc.id)
-    except Exception:
-        pass
+    doc = _run_firestore_read(
+        lambda: db.collection(PRODUCTS_COLLECTION).document(doc_id).get(),
+        None,
+    )
+    if doc is not None and getattr(doc, "exists", False):
+        return _normalize_catalog_record(doc.to_dict() or {}, doc.id)
 
     return _get_metadata_product_by_id(doc_id)
 
@@ -1283,14 +1344,16 @@ def _load_catalog_products(force_refresh=False):
     seen_identity = set()
 
     if db is not None:
-        try:
-            docs = list(db.collection(PRODUCTS_COLLECTION).stream())
-        except Exception:
-            docs = []
+        docs = _run_firestore_read(
+            lambda: list(db.collection(PRODUCTS_COLLECTION).stream()),
+            [],
+        )
 
         for doc in docs:
             normalized = _normalize_catalog_record(doc.to_dict() or {}, doc.id)
             if not normalized.get("brand") or not normalized.get("product_name"):
+                continue
+            if not _is_searchable_catalog_product(normalized):
                 continue
             identity = _product_identity_key(normalized)
             if identity in seen_identity:
@@ -1476,10 +1539,10 @@ def list_firestore_product_documents():
     if db is None:
         return []
 
-    try:
-        return list(db.collection(PRODUCTS_COLLECTION).stream())
-    except Exception:
-        return []
+    return _run_firestore_read(
+        lambda: list(db.collection(PRODUCTS_COLLECTION).stream()),
+        [],
+    )
 
 
 def delete_firestore_products(doc_ids):

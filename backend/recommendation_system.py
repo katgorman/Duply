@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from threading import Lock, Thread
 
 BASE_DIR = Path(__file__).resolve().parent
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
@@ -8,12 +9,15 @@ MODEL_DIR = BASE_DIR / "cosmetics_dupe_model"
 INDEX_PATH = BASE_DIR / "cosmetics_index.faiss"
 
 MODEL_MODE = os.getenv("DUPLY_MODEL_MODE", "auto").strip().lower()
+MODEL_BACKGROUND_WARMUP_ENABLED = os.getenv("DUPLY_BACKGROUND_MODEL_WARMUP", "").strip().lower() in {"1", "true", "yes", "on"}
 
 _products = None
 _model = None
 _index = None
 _model_status = "uninitialized"
 _model_error = ""
+_model_warmup_started = False
+_model_warmup_lock = Lock()
 
 
 def _load_products():
@@ -320,6 +324,28 @@ def _ensure_local_model():
         return False
 
 
+def start_model_warmup():
+    global _model_warmup_started, _model_status
+
+    if not MODEL_BACKGROUND_WARMUP_ENABLED or MODEL_MODE == "disabled" or _model_status in {"ready", "failed"}:
+        return
+
+    with _model_warmup_lock:
+        if _model_warmup_started or _model_status in {"ready", "failed"}:
+            return
+        _model_warmup_started = True
+        _model_status = "warming"
+
+        def _worker():
+            global _model_warmup_started
+            try:
+                _ensure_local_model()
+            finally:
+                _model_warmup_started = False
+
+        Thread(target=_worker, daemon=True).start()
+
+
 def _collect_results(ids, scores, original_product, target_type=None, k=5):
     results = []
     products = _load_products()
@@ -351,6 +377,8 @@ def _collect_results(ids, scores, original_product, target_type=None, k=5):
 def get_recommendation_mode():
     if _model_status == "ready":
         return "local-model"
+    if _model_status == "warming":
+        return "metadata-fallback"
     if MODEL_MODE == "disabled":
         return "metadata-fallback"
     if _model_status == "failed":
@@ -378,6 +406,11 @@ def find_dupes(query, k=5, search_pool=50, preferred_type=None):
             target_type = infer_candidate_type(original_product)
         else:
             target_type = infer_query_type(query)
+
+    if _model_status in {"uninitialized", "warming"}:
+        if _model_status == "uninitialized":
+            start_model_warmup()
+        return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
 
     if not _ensure_local_model():
         return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
