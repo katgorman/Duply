@@ -79,11 +79,15 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <script>
 const BASE = window.location.origin;
 const jobs = {};
+const jobRuntime = {};
 const JOB_PREFIX_BY_KIND = {
   'recat-catalog': 'recat',
   'augment-us-retailers': 'aug',
   'augment-top-brands': 'aug',
 };
+const AUTO_RUN_DELAY_MS = 15000;
+const AUTO_RUN_MAX_BACKOFF_MS = 90000;
+const GATEWAY_RECHECK_DELAY_MS = 5000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -96,8 +100,9 @@ async function parseApiResponse(response, fallbackMessage) {
   try {
     payload = rawText ? JSON.parse(rawText) : null;
   } catch (error) {
+    const looksLikeHtml = /^\s*</.test(rawText || '');
     payload = {
-      error: fallbackMessage,
+      error: looksLikeHtml ? `${fallbackMessage} (received HTML instead of JSON)` : fallbackMessage,
       status: response.status,
       bodyPreview: (rawText || '').slice(0, 300),
     };
@@ -134,24 +139,126 @@ function setProgress(prefix, state) {
   }
 }
 
-function rememberJob(prefix, state) {
-  if (!prefix || !state) return;
-  if (state.jobId) {
-    jobs[prefix] = state.jobId;
-    document.getElementById('job-id-input').value = state.jobId;
-  }
-  const row = document.getElementById(prefix + '-job-row');
-  if (row) row.style.display = 'flex';
-  setBadge(prefix, state.status);
-  setProgress(prefix, state);
-  show(prefix + '-out', state);
-}
-
 function setRunButton(prefix, text, disabled) {
   const btn = document.getElementById(prefix + '-run-btn');
   if (!btn) return;
   btn.textContent = text;
   btn.disabled = !!disabled;
+}
+
+function getJobRuntime(prefix) {
+  if (!jobRuntime[prefix]) {
+    jobRuntime[prefix] = {
+      jobId: '',
+      lastState: null,
+      requestPromise: null,
+      runnerPromise: null,
+      failureCount: 0,
+      cooldownUntil: 0,
+    };
+  }
+  return jobRuntime[prefix];
+}
+
+function formatDelay(ms) {
+  const seconds = Math.max(1, Math.ceil((ms || 0) / 1000));
+  if (seconds >= 60) {
+    return `${Math.ceil(seconds / 60)}m`;
+  }
+  return `${seconds}s`;
+}
+
+function isGatewayErrorMessage(message) {
+  const normalized = String(message || '').toLowerCase();
+  return (
+    normalized.includes('(502)') ||
+    normalized.includes('(503)') ||
+    normalized.includes('(504)') ||
+    normalized.includes('bad gateway') ||
+    normalized.includes('gateway') ||
+    normalized.includes('upstream') ||
+    normalized.includes('received html instead of json') ||
+    normalized.includes('<!doctype') ||
+    normalized.includes('<html')
+  );
+}
+
+function syncRunButton(prefix, state) {
+  const runtime = getJobRuntime(prefix);
+  const resolvedState = state || runtime.lastState;
+  const cooldownMs = Math.max(0, runtime.cooldownUntil - Date.now());
+
+  if (runtime.requestPromise) {
+    setRunButton(prefix, 'Running...', true);
+    return;
+  }
+  if (runtime.runnerPromise) {
+    if (cooldownMs > 0) {
+      setRunButton(prefix, `Retrying in ${formatDelay(cooldownMs)}`, true);
+    } else {
+      setRunButton(prefix, 'Auto-running...', true);
+    }
+    return;
+  }
+  if (!resolvedState) {
+    setRunButton(prefix, 'Advance', true);
+    return;
+  }
+  if (resolvedState.status === 'completed') {
+    setRunButton(prefix, 'Done!', true);
+    return;
+  }
+  if (resolvedState.status === 'failed') {
+    setRunButton(prefix, 'Retry', false);
+    return;
+  }
+  if (resolvedState.status === 'queued') {
+    setRunButton(prefix, 'Start', false);
+    return;
+  }
+  if (resolvedState.status === 'running') {
+    setRunButton(prefix, 'Resume', false);
+    return;
+  }
+  setRunButton(prefix, 'Advance', false);
+}
+
+function rememberJob(prefix, state) {
+  if (!prefix || !state) return;
+  const runtime = getJobRuntime(prefix);
+  if (state.jobId) {
+    if (runtime.jobId && runtime.jobId !== state.jobId) {
+      runtime.requestPromise = null;
+      runtime.runnerPromise = null;
+      runtime.failureCount = 0;
+      runtime.cooldownUntil = 0;
+      runtime.lastState = null;
+    }
+    runtime.jobId = state.jobId;
+    jobs[prefix] = state.jobId;
+    document.getElementById('job-id-input').value = state.jobId;
+  }
+  runtime.lastState = state;
+  const row = document.getElementById(prefix + '-job-row');
+  if (row) row.style.display = 'flex';
+  setBadge(prefix, state.status);
+  setProgress(prefix, state);
+  syncRunButton(prefix, state);
+  show(prefix + '-out', state);
+}
+
+async function fetchJobState(prefix, options = {}) {
+  const { silent = false, outputId = null } = options;
+  const jobId = jobs[prefix];
+  if (!jobId) return null;
+
+  const response = await fetch(BASE + '/admin/jobs/' + jobId);
+  const state = await parseApiResponse(response, 'Failed to load job state');
+  rememberJob(prefix, state);
+  if (!silent) {
+    show(outputId || (prefix + '-out'), state);
+  }
+  return state;
 }
 
 async function fetchWithRetry(url, options, attempts = 3, delayMs = 1200) {
@@ -198,14 +305,12 @@ async function startJob(btn, kind, prefix) {
     });
     const state = await parseApiResponse(response, 'Failed to create job');
     rememberJob(prefix, state);
-    try {
-      await autoRunJob(prefix);
-    } catch (runError) {
+    void autoRunJob(prefix).catch(runError => {
       show(prefix + '-out', {
         ...(state || {}),
-        warning: `Job was created, but the next run step failed: ${runError.message}`,
+        warning: `Job was created, but automatic progress paused: ${runError.message}`,
       });
-    }
+    });
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
   }
@@ -215,40 +320,102 @@ async function startJob(btn, kind, prefix) {
 async function advanceJob(prefix) {
   const jobId = jobs[prefix];
   if (!jobId) return;
-  setRunButton(prefix, 'Running...', true);
-  try {
-    const response = await fetchWithRetry(BASE + '/admin/jobs/' + jobId + '/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 1 }),
-    });
-    const state = await parseApiResponse(response, 'Failed to run job');
-    rememberJob(prefix, state);
-    if (state.status === 'running') {
-      setRunButton(prefix, 'Resume', false);
-    } else {
-      setRunButton(prefix, state.status === 'completed' ? 'Done!' : 'Failed', state.status === 'completed');
-    }
-    return state;
-  } catch (error) {
-    show(prefix + '-out', 'Error: ' + error.message);
-    setRunButton(prefix, 'Retry', false);
-    throw error;
+  const runtime = getJobRuntime(prefix);
+  if (runtime.requestPromise) {
+    return runtime.requestPromise;
   }
+
+  runtime.requestPromise = (async () => {
+    setRunButton(prefix, 'Running...', true);
+    try {
+      const response = await fetchWithRetry(BASE + '/admin/jobs/' + jobId + '/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxSteps: 1 }),
+      });
+      const state = await parseApiResponse(response, 'Failed to run job');
+      runtime.failureCount = 0;
+      runtime.cooldownUntil = 0;
+      rememberJob(prefix, state);
+      return state;
+    } finally {
+      runtime.requestPromise = null;
+    }
+  })();
+
+  return runtime.requestPromise;
 }
 
 async function autoRunJob(prefix) {
   const jobId = jobs[prefix];
   if (!jobId) return null;
-
-  let state = null;
-  while (true) {
-    state = await advanceJob(prefix);
-    if (!state || state.status !== 'running') {
-      return state;
-    }
-    await sleep(4000);
+  const runtime = getJobRuntime(prefix);
+  if (runtime.runnerPromise) {
+    return runtime.runnerPromise;
   }
+
+  runtime.runnerPromise = (async () => {
+    let state = null;
+
+    while (true) {
+      const cooldownMs = Math.max(0, runtime.cooldownUntil - Date.now());
+      if (cooldownMs > 0) {
+        setRunButton(prefix, `Retrying in ${formatDelay(cooldownMs)}`, true);
+        await sleep(cooldownMs);
+      }
+
+      try {
+        state = await advanceJob(prefix);
+      } catch (error) {
+        if (!isGatewayErrorMessage(error.message)) {
+          show(prefix + '-out', 'Error: ' + error.message);
+          syncRunButton(prefix);
+          throw error;
+        }
+
+        runtime.failureCount += 1;
+        const backoffMs = Math.min(
+          AUTO_RUN_MAX_BACKOFF_MS,
+          AUTO_RUN_DELAY_MS * runtime.failureCount
+        );
+        runtime.cooldownUntil = Date.now() + backoffMs;
+
+        let recoveredState = null;
+        try {
+          await sleep(GATEWAY_RECHECK_DELAY_MS);
+          recoveredState = await fetchJobState(prefix, { silent: true });
+        } catch (recoveryError) {
+          recoveredState = null;
+        }
+
+        show(prefix + '-out', {
+          jobId,
+          warning: `Render returned a temporary HTML/502 gateway response. Waiting ${formatDelay(backoffMs)} before retrying.`,
+          lastKnownState: recoveredState,
+        });
+
+        if (recoveredState && recoveredState.status !== 'running' && recoveredState.status !== 'queued') {
+          return recoveredState;
+        }
+        continue;
+      }
+
+      runtime.failureCount = 0;
+      runtime.cooldownUntil = 0;
+
+      if (!state || state.status !== 'running') {
+        return state;
+      }
+
+      setRunButton(prefix, `Next step in ${formatDelay(AUTO_RUN_DELAY_MS)}`, true);
+      await sleep(AUTO_RUN_DELAY_MS);
+    }
+  })().finally(() => {
+    runtime.runnerPromise = null;
+    syncRunButton(prefix);
+  });
+
+  return runtime.runnerPromise;
 }
 
 async function pollJob() {
@@ -264,15 +431,13 @@ async function pollJob() {
     if (prefix) {
       rememberJob(prefix, state);
       if (state.status === 'running' || state.status === 'queued') {
-        await autoRunJob(prefix);
+        void autoRunJob(prefix);
       }
     }
   } catch (error) {
     show('job-poll-out', 'Error: ' + error.message);
   }
 }
-
-checkStatus();
 </script>
 </body>
 </html>
