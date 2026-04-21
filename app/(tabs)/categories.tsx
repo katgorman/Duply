@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -42,13 +42,16 @@ const FEATURED_COLLECTIONS = [
   },
 ] as const;
 
-const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  face: 'sparkles',
-  lips: 'heart',
-  eyes: 'eye',
-  skincare: 'water',
-  nails: 'color-palette',
-  other: 'apps',
+const CATEGORY_ICONS: Record<
+  string,
+  { library: 'ionicons' | 'material'; name: string }
+> = {
+  face: { library: 'material', name: 'brush-variant' },
+  lips: { library: 'material', name: 'lipstick' },
+  eyes: { library: 'ionicons', name: 'eye' },
+  skincare: { library: 'ionicons', name: 'water' },
+  nails: { library: 'material', name: 'nail-polish' },
+  other: { library: 'ionicons', name: 'apps' },
 };
 
 function SectionHeader({
@@ -83,7 +86,8 @@ function CategoryTile({
   onPress: () => void;
 }) {
   const dark = category.id === 'other';
-  const iconName = CATEGORY_ICONS[category.id] || 'apps';
+  const icon = CATEGORY_ICONS[category.id] || { library: 'ionicons', name: 'apps' };
+  const iconColor = dark ? colors.cream : colors.primary;
 
   return (
     <Pressable
@@ -96,11 +100,19 @@ function CategoryTile({
     >
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
         <View style={[styles.categoryIconBadge, dark && styles.categoryIconBadgeDark]}>
-          <Ionicons
-            name={iconName}
-            size={26}
-            color={dark ? colors.cream : colors.primary}
-          />
+          {icon.library === 'material' ? (
+            <MaterialCommunityIcons
+              name={icon.name as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={26}
+              color={iconColor}
+            />
+          ) : (
+            <Ionicons
+              name={icon.name as keyof typeof Ionicons.glyphMap}
+              size={26}
+              color={iconColor}
+            />
+          )}
         </View>
         <View style={styles.categoryBottomRow}>
           <Text style={[styles.categoryName, dark && styles.categoryNameDark]}>{category.name}</Text>
