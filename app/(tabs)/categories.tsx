@@ -1,9 +1,10 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Asset } from 'expo-asset';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SvgUri } from 'react-native-svg';
 import { Skeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useCategories, useFeaturedDupes, useProductsByCategory } from '../../hooks/useProducts';
@@ -42,33 +43,17 @@ const FEATURED_COLLECTIONS = [
   },
 ] as const;
 
-const CATEGORY_ICONS: Record<
+const CATEGORY_ART: Record<
   string,
-  { library: 'ionicons' | 'material'; name: string }
+  { uri: string; scale: number }
 > = {
-  face: { library: 'ionicons', name: 'brush-outline' },
-  lips: { library: 'material', name: 'lipstick' },
-  eyes: { library: 'ionicons', name: 'eye' },
-  skincare: { library: 'ionicons', name: 'water' },
-  nails: { library: 'material', name: 'nail' },
-  other: { library: 'ionicons', name: 'apps' },
+  face: { uri: Asset.fromModule(require('../../assets/category-art/3.svg')).uri, scale: 1.12 },
+  lips: { uri: Asset.fromModule(require('../../assets/category-art/4.svg')).uri, scale: 1.04 },
+  eyes: { uri: Asset.fromModule(require('../../assets/category-art/5.svg')).uri, scale: 1.18 },
+  skincare: { uri: Asset.fromModule(require('../../assets/category-art/6.svg')).uri, scale: 1.08 },
+  nails: { uri: Asset.fromModule(require('../../assets/category-art/7.svg')).uri, scale: 1.02 },
+  other: { uri: Asset.fromModule(require('../../assets/category-art/8.svg')).uri, scale: 1.2 },
 };
-
-function PaintedNailsIcon({ dark = false }: { dark?: boolean }) {
-  return (
-    <View style={styles.manicureIcon}>
-      <View style={styles.manicureNailRow}>
-        <View style={[styles.manicureNail, styles.manicureNailTall, dark && styles.manicureNailDark]} />
-        <View style={[styles.manicureNail, dark && styles.manicureNailDark]} />
-        <View style={[styles.manicureNail, styles.manicureNailShort, dark && styles.manicureNailDark]} />
-      </View>
-      <View style={[styles.manicureBrushHandle, dark && styles.manicureBrushHandleDark]} />
-      <View style={[styles.manicureBrushTip, dark && styles.manicureBrushTipDark]} />
-      <View style={[styles.manicureSpark, styles.manicureSparkOne, dark && styles.manicureSparkDark]} />
-      <View style={[styles.manicureSpark, styles.manicureSparkTwo, dark && styles.manicureSparkDark]} />
-    </View>
-  );
-}
 
 function SectionHeader({
   title,
@@ -102,8 +87,7 @@ function CategoryTile({
   onPress: () => void;
 }) {
   const dark = category.id === 'other';
-  const icon = CATEGORY_ICONS[category.id] || { library: 'ionicons', name: 'apps' };
-  const iconColor = dark ? colors.cream : colors.primary;
+  const art = CATEGORY_ART[category.id] || CATEGORY_ART.other;
 
   return (
     <Pressable
@@ -115,22 +99,10 @@ function CategoryTile({
       ]}
     >
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
-        <View style={[styles.categoryIconBadge, dark && styles.categoryIconBadgeDark]}>
-          {category.id === 'nails' ? (
-            <PaintedNailsIcon dark={dark} />
-          ) : icon.library === 'material' ? (
-            <MaterialCommunityIcons
-              name={icon.name as keyof typeof MaterialCommunityIcons.glyphMap}
-              size={26}
-              color={iconColor}
-            />
-          ) : (
-            <Ionicons
-              name={icon.name as keyof typeof Ionicons.glyphMap}
-              size={26}
-              color={iconColor}
-            />
-          )}
+        <View style={[styles.categoryArtFrame, dark && styles.categoryArtFrameDark]}>
+          <View style={[styles.categoryArtScaleWrap, { transform: [{ scale: art.scale }] }]}>
+            <SvgUri uri={art.uri} width="100%" height="100%" />
+          </View>
         </View>
         <View style={styles.categoryBottomRow}>
           <Text style={[styles.categoryName, dark && styles.categoryNameDark]}>{category.name}</Text>
@@ -504,107 +476,31 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   categoryTileInner: {
-    minHeight: 138,
+    minHeight: 228,
     borderRadius: radius.lg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.primary,
     overflow: 'hidden',
   },
-  categoryIconBadge: {
-    position: 'absolute',
-    width: 54,
-    height: 54,
-    borderRadius: radius.full,
-    right: spacing.md,
-    top: spacing.md,
-    backgroundColor: 'rgba(255,255,255,0.68)',
+  categoryArtFrame: {
+    height: 128,
+    marginBottom: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.74)',
     borderWidth: 1,
-    borderColor: 'rgba(42,11,38,0.12)',
+    borderColor: 'rgba(42,11,38,0.1)',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  categoryIconBadgeDark: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+  categoryArtFrameDark: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderColor: 'rgba(255,255,255,0.18)',
   },
-  manicureIcon: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  manicureNailRow: {
-    position: 'absolute',
-    left: 4,
-    top: 9,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  manicureNail: {
-    width: 7,
-    height: 14,
-    borderRadius: 6,
-    backgroundColor: '#F06A8D',
-    borderWidth: 1,
-    borderColor: 'rgba(42,11,38,0.12)',
-  },
-  manicureNailTall: {
-    height: 16,
-  },
-  manicureNailShort: {
-    height: 12,
-  },
-  manicureNailDark: {
-    backgroundColor: '#FFD7E3',
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  manicureBrushHandle: {
-    position: 'absolute',
-    width: 17,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-    transform: [{ rotate: '-34deg' }],
-    right: 2,
-    top: 8,
-  },
-  manicureBrushHandleDark: {
-    backgroundColor: colors.cream,
-  },
-  manicureBrushTip: {
-    position: 'absolute',
-    width: 6,
-    height: 9,
-    borderRadius: 3,
-    backgroundColor: '#F6B1C4',
-    transform: [{ rotate: '-34deg' }],
-    right: 7,
-    top: 12,
-  },
-  manicureBrushTipDark: {
-    backgroundColor: '#FFE7EF',
-  },
-  manicureSpark: {
-    position: 'absolute',
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-  },
-  manicureSparkDark: {
-    backgroundColor: colors.cream,
-  },
-  manicureSparkOne: {
-    width: 2,
-    height: 8,
-    right: 4,
-    bottom: 5,
-  },
-  manicureSparkTwo: {
-    width: 8,
-    height: 2,
-    right: 1,
-    bottom: 8,
+  categoryArtScaleWrap: {
+    width: '122%',
+    height: '122%',
   },
   categoryCount: {
     fontSize: 17,
@@ -626,7 +522,7 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.text,
     textTransform: 'uppercase',
-    maxWidth: '76%',
+    maxWidth: '100%',
     lineHeight: 28,
   },
   categoryNameDark: {
