@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -18,7 +19,7 @@ const FALLBACK_CATEGORIES: Category[] = [
   { id: 'other', name: 'Other', emoji: '', productType: 'other', color: '#2A0B26' },
 ];
 
-const MOOD_LANES = [
+const FEATURED_COLLECTIONS = [
   {
     id: 'face-preview',
     title: 'Face Base Dupes',
@@ -40,6 +41,15 @@ const MOOD_LANES = [
     category: 'skincare',
   },
 ] as const;
+
+const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  face: 'sparkles',
+  lips: 'heart',
+  eyes: 'eye',
+  skincare: 'water',
+  nails: 'color-palette',
+  other: 'apps',
+};
 
 function SectionHeader({
   title,
@@ -73,6 +83,7 @@ function CategoryTile({
   onPress: () => void;
 }) {
   const dark = category.id === 'other';
+  const iconName = CATEGORY_ICONS[category.id] || 'apps';
 
   return (
     <Pressable
@@ -84,7 +95,13 @@ function CategoryTile({
       ]}
     >
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
-        <View style={[styles.categoryOrb, dark && styles.categoryOrbDark]} />
+        <View style={[styles.categoryIconBadge, dark && styles.categoryIconBadgeDark]}>
+          <Ionicons
+            name={iconName}
+            size={26}
+            color={dark ? colors.cream : colors.primary}
+          />
+        </View>
         <View style={styles.categoryBottomRow}>
           <Text style={[styles.categoryName, dark && styles.categoryNameDark]}>{category.name}</Text>
           <View style={styles.categoryFooterRow}>
@@ -166,7 +183,7 @@ function RailEmptyCard({
   );
 }
 
-function MoodLaneCard({
+function FeaturedCollectionCard({
   title,
   items,
   loading,
@@ -178,26 +195,26 @@ function MoodLaneCard({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.moodRailCard, pressed && styles.cardPressed]}>
-      <View style={styles.moodCardTopRow}>
-        <Text style={styles.moodRailTitle}>{title}</Text>
-        <View style={styles.moodCountBadge}>
-          <Text style={styles.moodCountText}>{items.length || '--'}</Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.collectionRailCard, pressed && styles.cardPressed]}>
+      <View style={styles.collectionCardTopRow}>
+        <Text style={styles.collectionRailTitle}>{title}</Text>
+        <View style={styles.collectionCountBadge}>
+          <Text style={styles.collectionCountText}>{items.length || '--'}</Text>
         </View>
       </View>
 
       {items.length > 0 ? (
-        <View style={styles.moodTagRow}>
+        <View style={styles.collectionTagRow}>
           {items.slice(0, 3).map(item => (
-            <View key={item.id} style={styles.moodTag}>
-              <Text style={styles.moodTagText} numberOfLines={1}>
+            <View key={item.id} style={styles.collectionTag}>
+              <Text style={styles.collectionTagText} numberOfLines={1}>
                 {item.familyName || item.name}
               </Text>
             </View>
           ))}
         </View>
       ) : loading ? (
-        <View style={styles.moodTagRow}>
+        <View style={styles.collectionTagRow}>
           {[0, 1, 2].map(index => (
             <Skeleton
               key={index}
@@ -208,12 +225,12 @@ function MoodLaneCard({
           ))}
         </View>
       ) : (
-        <View style={styles.moodEmptyBox}>
-          <Text style={styles.moodEmptyText}>Preview picks are still warming up.</Text>
+        <View style={styles.collectionEmptyBox}>
+          <Text style={styles.collectionEmptyText}>Preview picks are still warming up.</Text>
         </View>
       )}
 
-      <Text style={styles.moodRailFoot}>Open lane</Text>
+      <Text style={styles.collectionRailFoot}>Open collection</Text>
     </Pressable>
   );
 }
@@ -250,14 +267,14 @@ export default function CategoriesScreen() {
     eyes: { items: eyesPreview?.items ?? [], loading: eyesPreviewLoading },
     skincare: { items: skincarePreview?.items ?? [], loading: skincarePreviewLoading },
   };
-  const moodLanes = MOOD_LANES.map(lane => ({
-    ...lane,
-    ...(previewData[lane.category] ?? { items: [], loading: false }),
+  const featuredCollections = FEATURED_COLLECTIONS.map(collection => ({
+    ...collection,
+    ...(previewData[collection.category] ?? { items: [], loading: false }),
   }));
   const standoutDupes = [...(featuredDupes || [])]
     .sort((left, right) => right.savings - left.savings || right.similarity - left.similarity)
     .slice(0, 3);
-  const moodRailLoading = moodLanes.some(lane => lane.loading && lane.items.length === 0);
+  const collectionRailLoading = featuredCollections.some(collection => collection.loading && collection.items.length === 0);
 
   useEffect(() => {
     categories.forEach(category => {
@@ -284,7 +301,7 @@ export default function CategoriesScreen() {
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <Animated.View entering={FadeInDown.duration(350)} style={styles.sectionBlock}>
             <SectionHeader
-              title="Category Lanes"
+              title="Categories"
               loading={categoriesLoading && !data?.length}
             />
 
@@ -342,8 +359,8 @@ export default function CategoriesScreen() {
 
           <Animated.View entering={FadeInDown.delay(160).duration(350)} style={styles.sectionBlock}>
             <SectionHeader
-              title="Browse By Mood"
-              loading={moodRailLoading}
+              title="Featured Collections"
+              loading={collectionRailLoading}
             />
 
             <ScrollView
@@ -351,13 +368,13 @@ export default function CategoriesScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.rail}
             >
-              {moodLanes.map(lane => (
-                <MoodLaneCard
-                  key={lane.id}
-                  title={lane.title}
-                  items={lane.items}
-                  loading={lane.loading}
-                  onPress={() => openCategory(lane.category, lane.title)}
+              {featuredCollections.map(collection => (
+                <FeaturedCollectionCard
+                  key={collection.id}
+                  title={collection.title}
+                  items={collection.items}
+                  loading={collection.loading}
+                  onPress={() => openCategory(collection.category, collection.title)}
                 />
               ))}
             </ScrollView>
@@ -457,27 +474,33 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   categoryTileInner: {
-    minHeight: 116,
+    minHeight: 138,
     borderRadius: radius.lg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.primary,
     overflow: 'hidden',
   },
-  categoryOrb: {
+  categoryIconBadge: {
     position: 'absolute',
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    right: -18,
-    top: -18,
-    backgroundColor: 'rgba(42,11,38,0.08)',
+    width: 54,
+    height: 54,
+    borderRadius: radius.full,
+    right: spacing.md,
+    top: spacing.md,
+    backgroundColor: 'rgba(255,255,255,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(42,11,38,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  categoryOrbDark: {
-    backgroundColor: 'rgba(255,255,255,0.14)',
+  categoryIconBadgeDark: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   categoryCount: {
-    ...typography.captionBold,
+    fontSize: 17,
+    fontWeight: '800',
     color: colors.primary,
   },
   categoryCountDark: {
@@ -492,10 +515,11 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   categoryName: {
-    ...typography.h3,
+    ...typography.h2,
     color: colors.text,
     textTransform: 'uppercase',
-    maxWidth: '84%',
+    maxWidth: '76%',
+    lineHeight: 28,
   },
   categoryNameDark: {
     color: colors.surface,
@@ -507,8 +531,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   categoryMeta: {
-    ...typography.caption,
+    ...typography.captionBold,
     color: colors.textSecondary,
+    textTransform: 'uppercase',
   },
   categoryMetaDark: {
     color: colors.cream,
@@ -579,7 +604,7 @@ const styles = StyleSheet.create({
     ...typography.bodyBold,
     color: colors.primary,
   },
-  moodRailCard: {
+  collectionRailCard: {
     width: 252,
     minHeight: 168,
     borderRadius: radius.lg,
@@ -589,18 +614,18 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     justifyContent: 'space-between',
   },
-  moodCardTopRow: {
+  collectionCardTopRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  moodRailTitle: {
+  collectionRailTitle: {
     ...typography.bodyBold,
     color: colors.primary,
     flex: 1,
   },
-  moodCountBadge: {
+  collectionCountBadge: {
     minWidth: 34,
     borderRadius: radius.full,
     backgroundColor: colors.softGold,
@@ -610,17 +635,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     alignItems: 'center',
   },
-  moodCountText: {
+  collectionCountText: {
     ...typography.smallBold,
     color: colors.primary,
   },
-  moodTagRow: {
+  collectionTagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.md,
   },
-  moodTag: {
+  collectionTag: {
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -629,11 +654,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     maxWidth: '100%',
   },
-  moodTagText: {
+  collectionTagText: {
     ...typography.small,
     color: colors.textSecondary,
   },
-  moodEmptyBox: {
+  collectionEmptyBox: {
     marginTop: spacing.md,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
@@ -642,11 +667,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
   },
-  moodEmptyText: {
+  collectionEmptyText: {
     ...typography.caption,
     color: colors.textMuted,
   },
-  moodRailFoot: {
+  collectionRailFoot: {
     ...typography.smallBold,
     color: colors.accent,
     marginTop: spacing.lg,
