@@ -50,7 +50,7 @@ const CATEGORY_ICONS: Record<
   lips: { library: 'material', name: 'lipstick' },
   eyes: { library: 'ionicons', name: 'eye' },
   skincare: { library: 'ionicons', name: 'water' },
-  nails: { library: 'material', name: 'nail' },
+  nails: { library: 'material', name: 'hand-back-right-outline' },
   other: { library: 'ionicons', name: 'apps' },
 };
 
