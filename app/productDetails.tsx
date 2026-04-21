@@ -140,6 +140,7 @@ export default function ProductDetailsScreen() {
   const [savingsAmount, setSavingsAmount] = useState(0);
   const [matchReason, setMatchReason] = useState('');
   const [loading, setLoading] = useState(!(cachedOriginal || cachedDupe));
+  const [loadError, setLoadError] = useState('');
   const [previewImage, setPreviewImage] = useState('');
   const [priceOffers, setPriceOffers] = useState<PriceOffer[]>(initialCachedPriceOffers || []);
   const [priceOffersLoading, setPriceOffersLoading] = useState(false);
@@ -159,6 +160,7 @@ export default function ProductDetailsScreen() {
       setLoading(true);
     }
     try {
+      setLoadError('');
       if (fromFeatured && id) {
         const featuredDupes = await dataService.getFeaturedDupes();
         const featuredMatch = featuredDupes.find(item => item.id === id);
@@ -197,8 +199,9 @@ export default function ProductDetailsScreen() {
           setMatchReason('');
         }
       }
-    } catch {
-      // Error loading products
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Something went wrong loading this product.';
+      setLoadError(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -301,11 +304,43 @@ export default function ProductDetailsScreen() {
     );
   }
 
+  if (loadError && !original) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.center}>
+          <Text style={styles.notFound}>Couldn't load product</Text>
+          <Text style={[styles.notFound, { fontSize: 14, fontWeight: '400', marginTop: spacing.sm, color: colors.textMuted }]} numberOfLines={3}>
+            {loadError}
+          </Text>
+          <TouchableOpacity onPress={() => { void loadData(); }} style={[styles.goBackBtn, { marginTop: spacing.lg }]}>
+            <Text style={styles.goBackText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.back()} style={[styles.goBackBtn, { marginTop: spacing.md, backgroundColor: colors.cream, borderWidth: 2, borderColor: colors.primary }]}>
+            <Text style={[styles.goBackText, { color: colors.primary }]}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!original) {
     return (
       <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.center}>
-          <Text style={{ fontSize: 48, marginBottom: spacing.lg }}>:(</Text>
           <Text style={styles.notFound}>Product not found</Text>
           <TouchableOpacity onPress={() => router.back()} style={styles.goBackBtn}>
             <Text style={styles.goBackText}>Go Back</Text>

@@ -418,7 +418,11 @@ export default function SearchResultsScreen() {
       ) : dupes.length === 0 ? (
         <View style={styles.centerMessage}>
           <Text style={styles.emptyTitle}>No dupes found</Text>
-          <Text style={styles.emptySubtitle}>Try another product name, brand, or category search.</Text>
+          <Text style={styles.emptySubtitle}>
+            {showHigherPricedMatches
+              ? 'Try another product name, brand, or category search.'
+              : 'No cheaper alternatives found. Try enabling "Show Higher Priced Matches" in Settings to see all ranked results.'}
+          </Text>
         </View>
       ) : (
         <FlatList

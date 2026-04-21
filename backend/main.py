@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 import hashlib
 import re
@@ -53,7 +54,20 @@ from web_products import (
     title_match_confidence,
 )
 
-app = FastAPI()
+WARM_CATALOG_ON_STARTUP = os.getenv("DUPLY_WARM_CATALOG_ON_STARTUP", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    if WARM_CATALOG_ON_STARTUP:
+        try:
+            warm_catalog_cache()
+        except Exception:
+            pass
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,18 +76,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-WARM_CATALOG_ON_STARTUP = os.getenv("DUPLY_WARM_CATALOG_ON_STARTUP", "").strip().lower() in {"1", "true", "yes", "on"}
-
-@app.on_event("startup")
-def _warm_catalog_on_startup():
-    if not WARM_CATALOG_ON_STARTUP:
-        return
-    try:
-        warm_catalog_cache()
-    except Exception:
-        # Best-effort warmup only. Requests should still work if warmup fails.
-        pass
 
 RESPONSE_CACHE_TTL_SECONDS = 300
 ADMIN_JOB_DEFAULT_MAX_STEPS = max(1, int(os.getenv("DUPLY_ADMIN_JOB_DEFAULT_MAX_STEPS", "1000")))
@@ -2471,16 +2473,21 @@ async def get_dupes(request: Request):
 
         query = f"{brand} {name}".strip()
 
-        # Let backend metadata be the source of truth
-        matched_product = lookup_product(query, preferred_type=product_type)
-        model_results = find_dupes(query, preferred_type=product_type)
-        original_firestore = fetch_firestore_product({
-            "brand": brand,
-            "product_name": name,
-            "category": category,
-            "subcategory": product_type,
-            "type": product_type,
-        })
+        # Run model lookups and original Firestore fetch concurrently
+        with ThreadPoolExecutor(max_workers=3) as _ex:
+            _f_lookup = _ex.submit(lookup_product, query, product_type)
+            _f_model = _ex.submit(find_dupes, query, product_type)
+            _f_original = _ex.submit(fetch_firestore_product, {
+                "brand": brand,
+                "product_name": name,
+                "category": category,
+                "subcategory": product_type,
+                "type": product_type,
+            })
+            matched_product = _f_lookup.result()
+            model_results = _f_model.result()
+            original_firestore = _f_original.result()
+
         if original_firestore:
             original_raw = original_firestore.get("raw", {})
             original_price = _first_present(
@@ -2535,11 +2542,22 @@ async def get_dupes(request: Request):
         )
         results = _merge_ranked_candidates(model_results, fallback_results)
 
+        # Fetch all candidate Firestore records in parallel
+        ranked_records = [item.get("record", {}) for item in results]
+        fetched_firestore = [None] * len(ranked_records)
+        if ranked_records:
+            with ThreadPoolExecutor(max_workers=min(len(ranked_records), 10)) as _ex:
+                _futures = {_ex.submit(fetch_firestore_product, rec): i for i, rec in enumerate(ranked_records)}
+                for _future in as_completed(_futures):
+                    _idx = _futures[_future]
+                    try:
+                        fetched_firestore[_idx] = _future.result()
+                    except Exception:
+                        fetched_firestore[_idx] = None
+
         output = []
 
-        for item in results:
-            ranked_record = item.get("record", {})
-            firestore_record = fetch_firestore_product(ranked_record)
+        for item, ranked_record, firestore_record in zip(results, ranked_records, fetched_firestore):
             dupe_source = firestore_record or ranked_record
             dupe = _product_from_record(
                 dupe_source,

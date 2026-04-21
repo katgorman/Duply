@@ -117,12 +117,10 @@ function getCachedPage<T>(key: string) {
 
 function buildDupesCacheKey(product: Product) {
   const payload = {
-    brand: product.brand,
-    name: product.name,
-    price: product.price,
-    image: product.image,
-    category: product.category,
-    productType: product.productType,
+    brand: (product.brand || '').trim().toLowerCase(),
+    name: (product.name || '').trim().toLowerCase(),
+    category: (product.category || '').trim().toLowerCase(),
+    productType: (product.productType || '').trim().toLowerCase(),
   };
   return `dupes:${JSON.stringify(payload)}`;
 }
@@ -526,21 +524,36 @@ export async function getProductByIdFromBackend(id: string): Promise<Product | n
   }
 
   const request = (async () => {
-    const response = await fetch(`${BASE_URL}/products/${encodeURIComponent(id)}`);
-    if (response.status === 404) {
-      setCachedValue(cacheKey, null, CACHE_TTL_MS.product);
-      return null;
+    const url = `${BASE_URL}/products/${encodeURIComponent(id)}`;
+    let lastText = '';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(url);
+        if (response.status === 404) {
+          setCachedValue(cacheKey, null, CACHE_TTL_MS.product);
+          return null;
+        }
+        const text = await response.text();
+        if (!response.ok) {
+          lastText = text;
+          if (attempt === 0 && RETRYABLE_STATUS_CODES.has(response.status)) {
+            await sleep(REQUEST_RETRY_DELAY_MS);
+            continue;
+          }
+          throw new Error(`Backend error ${response.status}: ${text}`);
+        }
+        const parsed = JSON.parse(text) as Product;
+        seedProductFamilyCaches(parsed);
+        return parsed;
+      } catch (error) {
+        if (attempt === 0 && isRetryableRequestError(error)) {
+          await sleep(REQUEST_RETRY_DELAY_MS);
+          continue;
+        }
+        throw normalizeRequestError(error);
+      }
     }
-
-    const text = await response.text();
-
-    if (!response.ok) {
-      throw new Error(`Backend error ${response.status}: ${text}`);
-    }
-
-    const parsed = JSON.parse(text) as Product;
-    seedProductFamilyCaches(parsed);
-    return parsed;
+    throw new Error(`Backend error: ${lastText || 'Failed to fetch'}`);
   })();
 
   inflightRequests.set(cacheKey, request);

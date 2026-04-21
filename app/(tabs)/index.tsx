@@ -132,7 +132,7 @@ export default function HomeScreen() {
                   ) : (
                     <View style={styles.suggestionsState}>
                       <Text style={styles.suggestionsTitle}>No products found</Text>
-                      <Text style={styles.suggestionsSubtitle}>Keep typing to narrow the database results</Text>
+                      <Text style={styles.suggestionsSubtitle}>Try a different brand or product name</Text>
                     </View>
                   )}
                 </View>
