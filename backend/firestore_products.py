@@ -611,44 +611,6 @@ def set_admin_job_state(job_id, payload):
     return set_firestore_web_cache(ADMIN_JOB_CACHE_KIND, str(job_id or "").strip(), payload)
 
 
-def list_admin_job_states(statuses=None):
-    if db is None:
-        return []
-
-    allowed_statuses = {
-        normalize_text(status)
-        for status in (statuses or [])
-        if normalize_text(status)
-    }
-
-    try:
-        docs = (
-            db.collection(WEB_CACHE_COLLECTION)
-            .where("cacheKind", "==", ADMIN_JOB_CACHE_KIND)
-            .stream()
-        )
-    except Exception:
-        return []
-
-    states = []
-    for doc in docs:
-        record = doc.to_dict() or {}
-        payload = record.get("payload") or {}
-        if not isinstance(payload, dict):
-            continue
-        status = normalize_text(payload.get("status"))
-        if allowed_statuses and status not in allowed_statuses:
-            continue
-        states.append(payload)
-
-    states.sort(key=lambda state: (
-        0 if normalize_text(state.get("status")) == "running" else 1,
-        int(state.get("createdAt") or 0),
-        str(state.get("jobId") or ""),
-    ))
-    return states
-
-
 def _product_bucket(product):
     raw_fields = [
         product.get("subcategory"),
