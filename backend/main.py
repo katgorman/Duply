@@ -4,6 +4,7 @@ import hashlib
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -73,12 +74,14 @@ def _warm_catalog_on_startup():
         pass
 
 RESPONSE_CACHE_TTL_SECONDS = 300
-ADMIN_JOB_DEFAULT_MAX_STEPS = 1
-ADMIN_JOB_MAX_STEPS_LIMIT = 25
+ADMIN_JOB_DEFAULT_MAX_STEPS = max(1, int(os.getenv("DUPLY_ADMIN_JOB_DEFAULT_MAX_STEPS", "1000")))
+ADMIN_JOB_MAX_STEPS_LIMIT = max(1, int(os.getenv("DUPLY_ADMIN_JOB_MAX_STEPS_LIMIT", "1000")))
 SEARCH_LIVE_FALLBACK_MODE = (os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MODE", "when-empty").strip().lower() or "when-empty")
 SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS = max(0, int(os.getenv("DUPLY_SEARCH_LIVE_FALLBACK_MIN_LOCAL_RESULTS", "0")))
 LIVE_PRICE_MATCHES_ENABLED = os.getenv("DUPLY_ENABLE_LIVE_PRICE_MATCHES", "").strip().lower() in {"1", "true", "yes", "on"}
 _response_cache = {}
+_active_admin_job_ids = set()
+_active_admin_job_ids_lock = Lock()
 
 
 def _cache_get(key):
@@ -1990,31 +1993,44 @@ def run_admin_job(job_id, max_steps=ADMIN_JOB_DEFAULT_MAX_STEPS):
     if state.get("status") == "failed":
         return state
 
+    with _active_admin_job_ids_lock:
+        if job_id in _active_admin_job_ids:
+            return state
+        _active_admin_job_ids.add(job_id)
+
     if not state.get("startedAt"):
         state["startedAt"] = _job_now()
 
-    for _ in range(safe_max_steps):
-        state["status"] = "running"
-        state["error"] = ""
-        try:
-            state = _run_admin_job_step(state)
-        except Exception as exc:
-            state["status"] = "failed"
-            state["error"] = str(exc)
-            state["lastResult"] = None
-        _save_admin_job_state(state)
-        if state.get("status") in {"completed", "failed"}:
-            break
+    try:
+        for _ in range(safe_max_steps):
+            state["status"] = "running"
+            state["error"] = ""
+            try:
+                state = _run_admin_job_step(state)
+            except Exception as exc:
+                state["status"] = "failed"
+                state["error"] = str(exc)
+                state["lastResult"] = None
+            _save_admin_job_state(state)
+            if state.get("status") in {"completed", "failed"}:
+                break
 
-    return state
+        return state
+    finally:
+        with _active_admin_job_ids_lock:
+            _active_admin_job_ids.discard(job_id)
 
 
 def _requested_admin_steps(value, default=ADMIN_JOB_DEFAULT_MAX_STEPS):
     try:
-        parsed = int(value or default)
+        if value is None or value == "":
+            parsed = int(default)
+        else:
+            parsed = int(value)
     except Exception:
         parsed = default
-    return max(1, min(parsed, 1))
+    minimum = 0 if (value is None or value == "") and int(default or 0) <= 0 else 1
+    return max(minimum, min(parsed, ADMIN_JOB_MAX_STEPS_LIMIT))
 
 
 @app.get("/health")
