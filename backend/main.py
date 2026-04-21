@@ -2019,6 +2019,14 @@ def run_admin_job(job_id, max_steps=ADMIN_JOB_DEFAULT_MAX_STEPS):
     return state
 
 
+def _requested_admin_steps(value, default=ADMIN_JOB_DEFAULT_MAX_STEPS):
+    try:
+        parsed = int(value or default)
+    except Exception:
+        parsed = default
+    return max(1, min(parsed, 1))
+
+
 @app.get("/health")
 def health():
     return {"ok": True, **get_recommendation_status()}
@@ -2073,7 +2081,7 @@ async def create_admin_job(request: Request):
     state = _create_admin_job_state(kind, config)
     _save_admin_job_state(state)
 
-    max_steps = int(body.get("maxSteps") or 0)
+    max_steps = _requested_admin_steps(body.get("maxSteps"), 0)
     if max_steps > 0:
         state = run_admin_job(state["jobId"], max_steps=max_steps)
 
@@ -2100,7 +2108,7 @@ async def run_existing_admin_job(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Job not found")
 
     try:
-        return run_admin_job(job_id, max_steps=body.get("maxSteps") or ADMIN_JOB_DEFAULT_MAX_STEPS)
+        return run_admin_job(job_id, max_steps=_requested_admin_steps(body.get("maxSteps")))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found")
     except Exception as e:

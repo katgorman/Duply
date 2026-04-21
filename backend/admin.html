@@ -40,7 +40,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <p style="font-size:13px;color:#4A2737;margin-bottom:14px">Re-runs category inference on all products currently stuck in "Other". No re-scraping.</p>
 <div class="row">
   <label>Batch size</label>
-  <input type="number" id="recat-batch" value="200" min="10" max="500">
+  <input type="number" id="recat-batch" value="50" min="10" max="200">
   <button onclick="startJob(this, 'recat-catalog', 'recat')">Start Recat Job</button>
 </div>
 <div class="row" id="recat-job-row" style="display:none">
@@ -56,7 +56,7 @@ button.secondary{background:#FFD1E8;color:#2A0B26}
 <p style="font-size:13px;color:#4A2737;margin-bottom:14px">Crawl product sitemaps and write new products to Firestore.</p>
 <div class="row">
   <label>Batch/retailer</label>
-  <input type="number" id="aug-batch" value="100" min="10" max="500">
+  <input type="number" id="aug-batch" value="10" min="5" max="100">
   <button onclick="startJob(this, 'augment-us-retailers', 'aug')">Start Augment Job</button>
 </div>
 <div class="row" id="aug-job-row" style="display:none">
@@ -198,7 +198,14 @@ async function startJob(btn, kind, prefix) {
     });
     const state = await parseApiResponse(response, 'Failed to create job');
     rememberJob(prefix, state);
-    await autoRunJob(prefix);
+    try {
+      await autoRunJob(prefix);
+    } catch (runError) {
+      show(prefix + '-out', {
+        ...(state || {}),
+        warning: `Job was created, but the next run step failed: ${runError.message}`,
+      });
+    }
   } catch (error) {
     show(prefix + '-out', 'Error: ' + error.message);
   }
@@ -213,7 +220,7 @@ async function advanceJob(prefix) {
     const response = await fetchWithRetry(BASE + '/admin/jobs/' + jobId + '/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxSteps: 2 }),
+      body: JSON.stringify({ maxSteps: 1 }),
     });
     const state = await parseApiResponse(response, 'Failed to run job');
     rememberJob(prefix, state);
@@ -240,7 +247,7 @@ async function autoRunJob(prefix) {
     if (!state || state.status !== 'running') {
       return state;
     }
-    await sleep(250);
+    await sleep(4000);
   }
 }
 
