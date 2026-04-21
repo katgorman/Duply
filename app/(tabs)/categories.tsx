@@ -301,10 +301,14 @@ export default function CategoriesScreen() {
       <View style={styles.content}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <Animated.View entering={FadeInDown.duration(350)} style={styles.sectionBlock}>
-            <SectionHeader
-              title="Categories"
-              loading={categoriesLoading && !data?.length}
-            />
+            {categoriesLoading && !data?.length ? (
+              <View style={styles.categoryLoadingRow}>
+                <View style={styles.loadingPill}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.loadingPillText}>Loading</Text>
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.categoryGrid}>
               {categories.map((category, index) => (
@@ -490,7 +494,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     borderColor: 'transparent',
     overflow: 'hidden',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'center',
   },
   categoryArtFrameDark: {
@@ -498,14 +502,20 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   categoryArtScaleWrap: {
-    width: '56%',
+    width: '46%',
     height: '100%',
-    alignSelf: 'flex-end',
+    alignSelf: 'center',
+    justifyContent: 'center',
   },
   categoryArtImage: {
     width: '100%',
     height: '100%',
-    alignSelf: 'flex-end',
+    alignSelf: 'center',
+  },
+  categoryLoadingRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: spacing.md,
   },
   categoryCount: {
     fontSize: 17,
