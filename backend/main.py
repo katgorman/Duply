@@ -36,7 +36,7 @@ from firestore_products import (
     upsert_firestore_products,
     warm_catalog_cache,
 )
-from recommendation_system import find_dupes, get_recommendation_status, lookup_product
+from recommendation_system import find_dupes, get_recommendation_status, lookup_product, search_local_products
 from web_products import (
     augment_official_us_retailers,
     augment_firestore_catalog_with_top_brands,
@@ -650,7 +650,7 @@ def _product_identity_key(product):
     })
 
 
-def _finalize_product(product, require_image=True):
+def _finalize_product(product, require_image=True, require_price=True, require_category=True):
     if not product:
         return None
 
@@ -681,9 +681,9 @@ def _finalize_product(product, require_image=True):
 
     if not normalized["name"] or not normalized["brand"]:
         return None
-    if not normalized["category"] or not normalized["productType"]:
+    if require_category and (not normalized["category"] or not normalized["productType"]):
         return None
-    if normalized["price"] <= 0:
+    if require_price and normalized["price"] <= 0:
         return None
     if require_image and not normalized["image"]:
         return None
@@ -846,6 +846,8 @@ def _search_ready_product(record, fallback=None, enrich_image=False):
     return _finalize_product(
         _product_from_record(record, fallback=fallback, enrich_image=enrich_image),
         require_image=False,
+        require_price=False,
+        require_category=False,
     )
 
 
@@ -1087,7 +1089,12 @@ def _first_present(*values):
     return None
 
 
-SEARCH_FALLBACK_SUFFIXES = ["foundation", "blush", "lipstick", "concealer"]
+SEARCH_FALLBACK_SUFFIXES = [
+    "foundation", "concealer", "blush", "lipstick", "mascara",
+    "eyeliner", "eyeshadow", "bronzer", "highlighter", "primer",
+    "setting powder", "lip gloss", "lip liner", "lip balm", "serum",
+    "moisturizer", "brow gel", "skin tint",
+]
 
 
 def _is_likely_brand_query(query: str) -> bool:
@@ -1145,6 +1152,27 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         combined.append(normalized_product)
         if len(combined) >= max_results:
             break
+
+    # Supplement with local metadata (covers brands not yet in Firestore)
+    if len(combined) < max_results:
+        metadata_results = search_local_products(q, limit=local_limit)
+        for product in metadata_results:
+            key = (
+                _normalize_text(product.get("brand")),
+                _normalize_text(product.get("product_name")),
+            )
+            if key in seen:
+                continue
+            normalized_product = _coerce_to_search_product(
+                product,
+                fallback={"id": ""},
+            )
+            if not normalized_product:
+                continue
+            seen.add(key)
+            combined.append(normalized_product)
+            if len(combined) >= max_results:
+                break
 
     resolved_web_limit = _resolved_search_web_limit(web_limit, len(combined))
     if resolved_web_limit > 0 and len(combined) < max_results:

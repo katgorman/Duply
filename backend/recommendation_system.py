@@ -38,6 +38,35 @@ def normalize_text(value):
     return str(value).strip().lower()
 
 
+def search_local_products(query: str, limit: int = 20) -> list:
+    """Search cosmetics_metadata.json for products matching query (brand-name aware)."""
+    query_lower = normalize_text(query)
+    if not query_lower:
+        return []
+    query_tokens = [t for t in query_lower.split() if len(t) >= 2]
+    if not query_tokens:
+        return []
+
+    scored = []
+    for product in _load_products():
+        brand = normalize_text(product.get("brand", ""))
+        name = normalize_text(product.get("product_name", ""))
+        score = 0
+        for token in query_tokens:
+            if token == brand or brand.startswith(token + " "):
+                score += 4
+            elif token in brand:
+                score += 2
+            if token in name:
+                score += 1
+        if score <= 0:
+            continue
+        scored.append((score, product))
+
+    scored.sort(key=lambda x: (-x[0], normalize_text(x[1].get("brand", "")), normalize_text(x[1].get("product_name", ""))))
+    return [p for _, p in scored[:limit]]
+
+
 def canonical_type(value):
     value = normalize_text(value)
 
