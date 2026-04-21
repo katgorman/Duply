@@ -59,9 +59,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+WARM_CATALOG_ON_STARTUP = os.getenv("DUPLY_WARM_CATALOG_ON_STARTUP", "").strip().lower() in {"1", "true", "yes", "on"}
 
 @app.on_event("startup")
 def _warm_catalog_on_startup():
+    if not WARM_CATALOG_ON_STARTUP:
+        return
     try:
         warm_catalog_cache()
     except Exception:
