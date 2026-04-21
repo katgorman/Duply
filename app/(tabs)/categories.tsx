@@ -54,6 +54,22 @@ const CATEGORY_ICONS: Record<
   other: { library: 'ionicons', name: 'apps' },
 };
 
+function PaintedNailsIcon({ dark = false }: { dark?: boolean }) {
+  return (
+    <View style={styles.manicureIcon}>
+      <View style={styles.manicureNailRow}>
+        <View style={[styles.manicureNail, styles.manicureNailTall, dark && styles.manicureNailDark]} />
+        <View style={[styles.manicureNail, dark && styles.manicureNailDark]} />
+        <View style={[styles.manicureNail, styles.manicureNailShort, dark && styles.manicureNailDark]} />
+      </View>
+      <View style={[styles.manicureBrushHandle, dark && styles.manicureBrushHandleDark]} />
+      <View style={[styles.manicureBrushTip, dark && styles.manicureBrushTipDark]} />
+      <View style={[styles.manicureSpark, styles.manicureSparkOne, dark && styles.manicureSparkDark]} />
+      <View style={[styles.manicureSpark, styles.manicureSparkTwo, dark && styles.manicureSparkDark]} />
+    </View>
+  );
+}
+
 function SectionHeader({
   title,
   loading = false,
@@ -100,7 +116,9 @@ function CategoryTile({
     >
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
         <View style={[styles.categoryIconBadge, dark && styles.categoryIconBadgeDark]}>
-          {icon.library === 'material' ? (
+          {category.id === 'nails' ? (
+            <PaintedNailsIcon dark={dark} />
+          ) : icon.library === 'material' ? (
             <MaterialCommunityIcons
               name={icon.name as keyof typeof MaterialCommunityIcons.glyphMap}
               size={26}
@@ -509,6 +527,84 @@ const styles = StyleSheet.create({
   categoryIconBadgeDark: {
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderColor: 'rgba(255,255,255,0.18)',
+  },
+  manicureIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manicureNailRow: {
+    position: 'absolute',
+    left: 4,
+    top: 9,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+  },
+  manicureNail: {
+    width: 7,
+    height: 14,
+    borderRadius: 6,
+    backgroundColor: '#F06A8D',
+    borderWidth: 1,
+    borderColor: 'rgba(42,11,38,0.12)',
+  },
+  manicureNailTall: {
+    height: 16,
+  },
+  manicureNailShort: {
+    height: 12,
+  },
+  manicureNailDark: {
+    backgroundColor: '#FFD7E3',
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  manicureBrushHandle: {
+    position: 'absolute',
+    width: 17,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+    transform: [{ rotate: '-34deg' }],
+    right: 2,
+    top: 8,
+  },
+  manicureBrushHandleDark: {
+    backgroundColor: colors.cream,
+  },
+  manicureBrushTip: {
+    position: 'absolute',
+    width: 6,
+    height: 9,
+    borderRadius: 3,
+    backgroundColor: '#F6B1C4',
+    transform: [{ rotate: '-34deg' }],
+    right: 7,
+    top: 12,
+  },
+  manicureBrushTipDark: {
+    backgroundColor: '#FFE7EF',
+  },
+  manicureSpark: {
+    position: 'absolute',
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+  },
+  manicureSparkDark: {
+    backgroundColor: colors.cream,
+  },
+  manicureSparkOne: {
+    width: 2,
+    height: 8,
+    right: 4,
+    bottom: 5,
+  },
+  manicureSparkTwo: {
+    width: 8,
+    height: 2,
+    right: 1,
+    bottom: 8,
   },
   categoryCount: {
     fontSize: 17,
