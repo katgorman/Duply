@@ -101,7 +101,7 @@ function CategoryTile({
       <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
         <View style={[styles.categoryArtFrame, dark && styles.categoryArtFrameDark]}>
           <View style={[styles.categoryArtScaleWrap, { transform: [{ scale: art.scale }] }]}>
-            <SvgUri uri={art.uri} width="100%" height="100%" />
+            <SvgUri uri={art.uri} width="100%" height="100%" preserveAspectRatio="xMaxYMid meet" />
           </View>
         </View>
         <View style={styles.categoryBottomRow}>
@@ -499,8 +499,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   categoryArtScaleWrap: {
-    width: '122%',
-    height: '122%',
+    width: '58%',
+    height: '100%',
     alignSelf: 'flex-end',
   },
   categoryCount: {
