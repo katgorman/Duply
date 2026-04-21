@@ -46,6 +46,8 @@ from web_products import (
     _infer_product_type,
     is_approved_retailer_url,
     is_live_product_url,
+    price_offer_match_confidence,
+    price_offer_sort_key,
     is_supported_price_match_url,
     search_web_products,
     title_match_confidence,
@@ -1197,7 +1199,7 @@ def _offer_identity_key(offer):
     )
 
 
-def _normalize_price_offer(offer, brand="", name="", check_live_url=True):
+def _normalize_price_offer(offer, brand="", name="", family_name="", check_live_url=True):
     url = str(offer.get("url") or "").strip()
     title = str(offer.get("title") or f"{brand} {name}".strip()).strip()
     price = _normalize_price(offer.get("price"))
@@ -1216,64 +1218,66 @@ def _normalize_price_offer(offer, brand="", name="", check_live_url=True):
         "image": offer.get("image") or "",
         "shipping": offer.get("shipping") or "",
         "source": offer.get("source") or "catalog",
-        "matchConfidence": int(offer.get("matchConfidence") or title_match_confidence(title, brand, name)),
+        "matchConfidence": int(offer.get("matchConfidence") or price_offer_match_confidence(title, brand, name, family_name)),
     }
 
 
-def _catalog_price_matches(brand: str, name: str, limit: int = 12):
+def _catalog_price_matches(brand: str, name: str, family_name: str = "", limit: int = 12):
     offers = []
     seen = set()
-    query = f"{brand} {name}".strip()
+    queries = [f"{brand} {name}".strip()]
+    if family_name and _normalize_text(family_name) != _normalize_text(name):
+        queries.append(f"{brand} {family_name}".strip())
 
-    for record in search_firestore_products(query, limit=max(limit * 10, 40)):
-        product = _search_ready_product(
-            record,
-            fallback={"id": record.get("firestore_id", "")},
-            enrich_image=False,
-        )
-        if not product or not product.get("productUrl"):
-            continue
+    for query in queries:
+        for record in search_firestore_products(query, limit=max(limit * 10, 40)):
+            product = _search_ready_product(
+                record,
+                fallback={"id": record.get("firestore_id", "")},
+                enrich_image=False,
+            )
+            if not product or not product.get("productUrl"):
+                continue
 
-        confidence = title_match_confidence(product.get("name"), brand, name)
-        if confidence < 50:
-            continue
+            confidence = price_offer_match_confidence(product.get("name"), brand, name, family_name)
+            if confidence < 50:
+                continue
 
-        normalized_offer = _normalize_price_offer({
-            "id": f"catalog-{product.get('id')}",
-            "retailer": record.get("source") or record.get("website") or product.get("source") or "catalog",
-            "title": product.get("name"),
-            "price": product.get("price"),
-            "url": product.get("productUrl"),
-            "image": product.get("image"),
-            "source": record.get("source") or "catalog",
-            "matchConfidence": confidence,
-        }, brand=brand, name=name, check_live_url=False)
-        if not normalized_offer:
-            continue
+            normalized_offer = _normalize_price_offer({
+                "id": f"catalog-{product.get('id')}",
+                "retailer": record.get("source") or record.get("website") or product.get("source") or "catalog",
+                "title": product.get("name"),
+                "price": product.get("price"),
+                "url": product.get("productUrl"),
+                "image": product.get("image"),
+                "source": record.get("source") or "catalog",
+                "matchConfidence": confidence,
+            }, brand=brand, name=name, family_name=family_name, check_live_url=False)
+            if not normalized_offer:
+                continue
 
-        key = _offer_identity_key(normalized_offer)
-        if key in seen:
-            continue
-        seen.add(key)
-        offers.append(normalized_offer)
+            key = _offer_identity_key(normalized_offer)
+            if key in seen:
+                continue
+            seen.add(key)
+            offers.append(normalized_offer)
 
-    offers.sort(
-        key=lambda offer: (
-            normalize_text(offer.get("retailer")) not in {"sephora", "ulta", "ulta beauty"},
-            offer.get("price", 0),
-            -(offer.get("matchConfidence") or 0),
-            normalize_text(offer.get("retailer")),
-        )
-    )
+    offers.sort(key=price_offer_sort_key)
     return offers[:limit]
 
 
-def _merge_price_offers(*offer_groups, brand="", name="", limit=3):
+def _merge_price_offers(*offer_groups, brand="", name="", family_name="", limit=3):
     merged = []
     seen = set()
     for group in offer_groups:
         for offer in group or []:
-            normalized_offer = _normalize_price_offer(offer, brand=brand, name=name, check_live_url=False)
+            normalized_offer = _normalize_price_offer(
+                offer,
+                brand=brand,
+                name=name,
+                family_name=family_name,
+                check_live_url=False,
+            )
             if not normalized_offer:
                 continue
             key = _offer_identity_key(normalized_offer)
@@ -1282,14 +1286,7 @@ def _merge_price_offers(*offer_groups, brand="", name="", limit=3):
             seen.add(key)
             merged.append(normalized_offer)
 
-    merged.sort(
-        key=lambda offer: (
-            normalize_text(offer.get("retailer")) not in {"sephora", "ulta", "ulta beauty"},
-            offer.get("price", 0),
-            -(offer.get("matchConfidence") or 0),
-            normalize_text(offer.get("retailer")),
-        )
-    )
+    merged.sort(key=price_offer_sort_key)
     return merged[:limit]
 
 
@@ -2348,9 +2345,9 @@ async def get_price_matches(request: Request):
         body = await request.json()
         product_id = body.get("id", "")
         brand = body.get("brand", "")
-        name = body.get("name", "")
-        family_name = body.get("familyName", "")
-        lookup_name = family_name or name
+        name = str(body.get("name", "")).strip()
+        family_name = str(body.get("familyName", "")).strip()
+        lookup_name = name or family_name
 
         if not lookup_name:
             raise HTTPException(status_code=400, detail="Product name is required")
@@ -2359,7 +2356,9 @@ async def get_price_matches(request: Request):
             "price_matches",
             product_id,
             _normalize_text(brand),
+            _normalize_text(name),
             _normalize_text(lookup_name),
+            _normalize_text(family_name),
             _normalize_text(body.get("productUrl", "")),
         )
         cached = _cache_get(cache_key)
@@ -2391,28 +2390,30 @@ async def get_price_matches(request: Request):
                     "source": offer.get("source") or "catalog",
                     "matchConfidence": offer.get("matchConfidence") or 100,
                 })
-        catalog_offers = _catalog_price_matches(brand, lookup_name, limit=12)
-        merged = _merge_price_offers(
-            catalog_offers,
-            stored_offers,
-            brand=brand,
-            name=lookup_name,
-            limit=3,
-        )
-        if not merged and LIVE_PRICE_MATCHES_ENABLED:
+        catalog_offers = _catalog_price_matches(brand, lookup_name, family_name=family_name, limit=12)
+        live_offers = []
+        if LIVE_PRICE_MATCHES_ENABLED:
             try:
-                live_offers = find_price_matches(brand, lookup_name, product_url=product_url, limit=12)
+                live_offers = find_price_matches(
+                    brand,
+                    lookup_name,
+                    family_name=family_name,
+                    product_url=product_url,
+                    limit=12,
+                )
             except Exception as exc:
                 print("Live price match lookup failed:", str(exc))
                 live_offers = []
-            merged = _merge_price_offers(
-                catalog_offers,
-                stored_offers,
-                live_offers,
-                brand=brand,
-                name=lookup_name,
-                limit=3,
-            )
+
+        merged = _merge_price_offers(
+            catalog_offers,
+            stored_offers,
+            live_offers,
+            brand=brand,
+            name=lookup_name,
+            family_name=family_name,
+            limit=3,
+        )
         if not merged:
             fallback_offer = _catalog_url_fallback_offer(
                 product,

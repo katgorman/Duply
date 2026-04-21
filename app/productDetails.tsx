@@ -435,7 +435,18 @@ export default function ProductDetailsScreen() {
   const comparisonStats = isComparisonView && dupeProduct
     ? buildComparisonStats(original, dupeProduct)
     : [];
-  const visiblePriceOffers = priceOffers.filter(offer => isSupportedPriceMatchUrl(offer.url));
+  const visiblePriceOffers = [...priceOffers]
+    .filter(offer => isSupportedPriceMatchUrl(offer.url))
+    .sort((left, right) => {
+      if (left.price !== right.price) {
+        return left.price - right.price;
+      }
+      const confidenceDelta = (right.matchConfidence || 0) - (left.matchConfidence || 0);
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+      return (left.retailer || '').localeCompare(right.retailer || '');
+    });
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

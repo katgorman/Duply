@@ -131,6 +131,7 @@ function buildPriceMatchesCacheKey(product: Product) {
   const payload = {
     variantGroupId: product.variantGroupId || '',
     brand: (product.brand || '').trim().toLowerCase(),
+    name: (product.name || '').trim().toLowerCase(),
     familyName: (product.familyName || product.name || '').trim().toLowerCase(),
     category: (product.category || '').trim().toLowerCase(),
     productType: (product.productType || '').trim().toLowerCase(),
@@ -165,10 +166,23 @@ function isSupportedPriceMatchUrl(url: string | undefined | null): boolean {
 }
 
 function sanitizePriceOffers(offers: PriceOffer[] | null | undefined): PriceOffer[] {
-  return (offers || []).filter(offer => {
-    const url = (offer?.url || '').trim();
-    return Number.isFinite(offer?.price) && (offer?.price || 0) > 0 && isSupportedPriceMatchUrl(url);
-  });
+  return (offers || [])
+    .filter(offer => {
+      const url = (offer?.url || '').trim();
+      return Number.isFinite(offer?.price) && (offer?.price || 0) > 0 && isSupportedPriceMatchUrl(url);
+    })
+    .sort((left, right) => {
+      const leftPrice = left.price || Number.MAX_SAFE_INTEGER;
+      const rightPrice = right.price || Number.MAX_SAFE_INTEGER;
+      if (leftPrice !== rightPrice) {
+        return leftPrice - rightPrice;
+      }
+      const confidenceDelta = (right.matchConfidence || 0) - (left.matchConfidence || 0);
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+      return (left.retailer || '').localeCompare(right.retailer || '');
+    });
 }
 
 export function getCachedCategoryPage(

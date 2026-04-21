@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Skeleton } from '../../components/SkeletonLoader';
@@ -79,10 +79,12 @@ function SectionHeader({
 function CategoryTile({
   category,
   wide = false,
+  compact = false,
   onPress,
 }: {
   category: Category;
   wide?: boolean;
+  compact?: boolean;
   onPress: () => void;
 }) {
   const dark = category.id === 'other';
@@ -94,23 +96,24 @@ function CategoryTile({
       style={({ pressed }) => [
         styles.categoryTile,
         wide && styles.categoryTileWide,
+        compact && styles.categoryTileCompact,
         pressed && styles.cardPressed,
       ]}
     >
-      <View style={[styles.categoryTileInner, { backgroundColor: category.color }]}>
-        <View style={[styles.categoryArtFrame, dark && styles.categoryArtFrameDark]}>
-          <View style={[styles.categoryArtScaleWrap, { transform: [{ scale: art.scale }] }]}>
+      <View style={[styles.categoryTileInner, compact && styles.categoryTileInnerCompact, { backgroundColor: category.color }]}>
+        <View style={[styles.categoryArtFrame, compact && styles.categoryArtFrameCompact, dark && styles.categoryArtFrameDark]}>
+          <View style={[styles.categoryArtScaleWrap, compact && styles.categoryArtScaleWrapCompact, { transform: [{ scale: art.scale }] }]}>
             <Image source={art.source} style={styles.categoryArtImage} contentFit="contain" />
           </View>
         </View>
-        <View style={styles.categoryBottomRow}>
-          <Text style={[styles.categoryName, dark && styles.categoryNameDark]}>{category.name}</Text>
+        <View style={[styles.categoryBottomRow, compact && styles.categoryBottomRowCompact]}>
+          <Text style={[styles.categoryName, compact && styles.categoryNameCompact, dark && styles.categoryNameDark]}>{category.name}</Text>
           <View style={styles.categoryFooterRow}>
-            <Text style={[styles.categoryMeta, dark && styles.categoryMetaDark]}>
+            <Text style={[styles.categoryMeta, compact && styles.categoryMetaCompact, dark && styles.categoryMetaDark]}>
               {typeof category.count === 'number' ? 'Products' : 'Loading totals'}
             </Text>
             {typeof category.count === 'number' ? (
-              <Text style={[styles.categoryCount, dark && styles.categoryCountDark]}>
+              <Text style={[styles.categoryCount, compact && styles.categoryCountCompact, dark && styles.categoryCountDark]}>
                 {category.count.toLocaleString()}
               </Text>
             ) : (
@@ -238,6 +241,8 @@ function FeaturedCollectionCard({
 
 export default function CategoriesScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const compactCategoryLayout = width < 760;
   const { data, loading: categoriesLoading } = useCategories();
   const { data: featuredDupes, loading: featuredDupesLoading } = useFeaturedDupes();
   const { data: facePreview, loading: facePreviewLoading } = useProductsByCategory('face', {
@@ -315,7 +320,8 @@ export default function CategoriesScreen() {
                 <CategoryTile
                   key={category.id}
                   category={category}
-                  wide={categories.length % 2 === 1 && index === categories.length - 1}
+                  wide={compactCategoryLayout || (categories.length % 2 === 1 && index === categories.length - 1)}
+                  compact={compactCategoryLayout}
                   onPress={() => openCategory(category.productType, category.name)}
                 />
               ))}
@@ -478,6 +484,9 @@ const styles = StyleSheet.create({
   categoryTileWide: {
     width: '100%',
   },
+  categoryTileCompact: {
+    width: '100%',
+  },
   categoryTileInner: {
     minHeight: 228,
     borderRadius: radius.lg,
@@ -489,6 +498,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'flex-end',
     position: 'relative',
+  },
+  categoryTileInnerCompact: {
+    minHeight: 172,
+    paddingVertical: spacing.sm,
   },
   categoryArtFrame: {
     position: 'absolute',
@@ -504,6 +517,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
+  categoryArtFrameCompact: {
+    width: '42%',
+    top: spacing.xs,
+    bottom: spacing.xs,
+    right: spacing.sm,
+  },
   categoryArtFrameDark: {
     backgroundColor: 'transparent',
     borderColor: 'transparent',
@@ -513,6 +532,10 @@ const styles = StyleSheet.create({
     height: '92%',
     alignSelf: 'flex-end',
     justifyContent: 'center',
+  },
+  categoryArtScaleWrapCompact: {
+    width: '100%',
+    height: '86%',
   },
   categoryArtImage: {
     width: '100%',
@@ -543,6 +566,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     zIndex: 1,
   },
+  categoryBottomRowCompact: {
+    width: '54%',
+    minHeight: 76,
+  },
   categoryName: {
     ...typography.h2,
     color: colors.text,
@@ -551,6 +578,10 @@ const styles = StyleSheet.create({
     width: '100%',
     lineHeight: 28,
     textAlign: 'left',
+  },
+  categoryNameCompact: {
+    fontSize: 24,
+    lineHeight: 24,
   },
   categoryNameDark: {
     color: colors.surface,
@@ -567,8 +598,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     textAlign: 'left',
   },
+  categoryMetaCompact: {
+    fontSize: 12,
+  },
   categoryMetaDark: {
     color: colors.cream,
+  },
+  categoryCountCompact: {
+    fontSize: 15,
   },
   rail: {
     gap: spacing.md,

@@ -465,6 +465,24 @@ def _meaningful_tokens(value):
     return [token for token in tokens if len(token) > 2 and token not in {"the", "and", "for", "with", "new", "makeup", "product", "set", "mini"}]
 
 
+def _product_match_tokens(value):
+    stopwords = {"the", "and", "for", "with", "new", "makeup", "product", "set", "mini", "cosmetics"}
+    tokens = re.findall(r"[a-z0-9]+", normalize_text(value))
+    return [
+        token for token in tokens
+        if token not in stopwords and (len(token) > 2 or any(char.isdigit() for char in token))
+    ]
+
+
+def _distinctive_product_tokens(product_name, family_name="", brand=""):
+    family_tokens = set(_product_match_tokens(family_name))
+    brand_tokens = set(_product_match_tokens(brand))
+    return [
+        token for token in _product_match_tokens(product_name)
+        if token not in family_tokens and token not in brand_tokens
+    ]
+
+
 def title_match_confidence(title, brand, product_name):
     text, brand_text = normalize_text(title), normalize_text(brand)
     if brand_text and brand_text not in text:
@@ -474,6 +492,48 @@ def title_match_confidence(title, brand, product_name):
         return 60 if brand_text else 0
     matched = sum(1 for token in tokens[:8] if token in text)
     return round((matched / min(len(tokens), 8)) * 75 + (25 if brand_text and brand_text in text else 0))
+
+
+def price_offer_match_confidence(title, brand, product_name, family_name=""):
+    text = normalize_text(title)
+    brand_text = normalize_text(brand)
+    if brand_text and brand_text not in text:
+        return 0
+
+    exact_score = title_match_confidence(title, brand, product_name)
+    family_score = 0
+    if family_name and normalize_text(family_name) != normalize_text(product_name):
+        family_score = title_match_confidence(title, brand, family_name)
+
+    distinctive_tokens = _distinctive_product_tokens(product_name, family_name, brand)[:4]
+    if distinctive_tokens:
+        matched = sum(1 for token in distinctive_tokens if token in text)
+        missing = len(distinctive_tokens) - matched
+        if missing == 0:
+            exact_score = min(100, exact_score + 12)
+        elif matched == 0:
+            exact_score = max(0, exact_score - 20)
+        else:
+            exact_score = max(0, exact_score - (missing * 6))
+
+    if exact_score >= 60:
+        return min(100, exact_score)
+
+    family_adjusted = max(0, family_score - 8) if family_score else 0
+    return max(exact_score, min(92, family_adjusted))
+
+
+def price_offer_sort_key(offer):
+    price = _extract_price(offer.get("price"))
+    confidence = int(offer.get("matchConfidence") or 0)
+    return (
+        confidence < 70,
+        confidence < 55,
+        price <= 0,
+        price if price > 0 else 10**9,
+        -(confidence or 0),
+        normalize_text(offer.get("retailer")),
+    )
 
 
 def _has_dataforseo_credentials():
@@ -1189,12 +1249,12 @@ def get_web_product_by_id(product_id):
     return _web_product_cache.get(product_id)
 
 
-def _candidate_direct_offer(candidate, brand, product_name):
+def _candidate_direct_offer(candidate, brand, product_name, family_name=""):
     title = str(candidate.get("product_name") or candidate.get("title") or "").strip()
     url = str(candidate.get("title-href") or candidate.get("shopping_url") or candidate.get("raw", {}).get("productUrl") or "").strip()
     price = _extract_price(candidate.get("price"))
-    confidence = title_match_confidence(title or product_name, brand, product_name)
-    if not title or not url or price <= 0 or confidence < 35 or not is_live_product_url(url):
+    confidence = price_offer_match_confidence(title or product_name, brand, product_name, family_name)
+    if not title or not url or price <= 0 or confidence < 45 or not is_live_product_url(url):
         return None
     digest = hashlib.sha1(f"{title}|{url}".encode("utf-8")).hexdigest()[:14]
     return {
@@ -1211,15 +1271,22 @@ def _candidate_direct_offer(candidate, brand, product_name):
     }
 
 
-def _query_variants(brand, product_name):
+def _query_variants(brand, product_name, family_name=""):
     variants = []
     seen = set()
-    for value in [
+    candidates = [
         f"{brand} {product_name}".strip(),
         product_name.strip(),
         f"{brand} {product_name} makeup".strip(),
         f"{brand} {product_name} cosmetics".strip(),
-    ]:
+    ]
+    if family_name and normalize_text(family_name) != normalize_text(product_name):
+        candidates.extend([
+            f"{brand} {family_name}".strip(),
+            family_name.strip(),
+        ])
+
+    for value in candidates:
         normalized = normalize_text(value)
         if normalized and normalized not in seen:
             seen.add(normalized)
@@ -1227,14 +1294,22 @@ def _query_variants(brand, product_name):
     return variants
 
 
-def find_price_matches(brand, product_name, product_url="", limit=8):
+def find_price_matches(brand, product_name, family_name="", product_url="", limit=8):
     if not product_name or not _has_dataforseo_credentials():
         return []
-    key = _versioned_key("price-match", normalize_text(brand), normalize_text(product_name), normalize_text(product_url), limit)
+    key = _versioned_key(
+        "price-match",
+        normalize_text(brand),
+        normalize_text(product_name),
+        normalize_text(family_name),
+        normalize_text(product_url),
+        limit,
+    )
     cached = _load_persistent_cache(_price_match_cache, "price-match", key)
     if cached is not None:
         return cached
     offers, seen = [], set()
+    target_offer_pool = max(limit * 2, 18)
 
     if product_url and is_live_product_url(product_url):
         direct_digest = hashlib.sha1(f"{brand}|{product_name}|{product_url}".encode("utf-8")).hexdigest()[:14]
@@ -1251,14 +1326,14 @@ def find_price_matches(brand, product_name, product_url="", limit=8):
             "rank": 0,
         })
 
-    for query in _query_variants(brand, product_name):
+    for query in _query_variants(brand, product_name, family_name):
         for candidate in search_web_products(query, max(limit * 4, 12)):
             product_info = _fetch_product_info(candidate)
             merchant_offers = candidate.get("merchantOffers") or candidate.get("raw", {}).get("merchantOffers") or _extract_offers(product_info, candidate.get("product_name"))
             for index, offer in enumerate(merchant_offers):
                 title, url, price = str(offer.get("title") or candidate.get("product_name") or "").strip(), str(offer.get("url") or "").strip(), _extract_price(offer.get("price"))
-                confidence = title_match_confidence(title, brand, product_name)
-                if not title or not url or price <= 0 or confidence < 35 or not is_live_product_url(url):
+                confidence = price_offer_match_confidence(title, brand, product_name, family_name)
+                if not title or not url or price <= 0 or confidence < 45 or not is_live_product_url(url):
                     continue
                 dedupe_key = (normalize_text(offer.get("retailer")), normalize_text(title), normalize_text(url))
                 if dedupe_key in seen:
@@ -1266,25 +1341,25 @@ def find_price_matches(brand, product_name, product_url="", limit=8):
                 seen.add(dedupe_key)
                 digest = hashlib.sha1(f"{title}|{url}".encode("utf-8")).hexdigest()[:14]
                 offers.append({"id": f"offer-{digest}", "retailer": offer.get("retailer") or _source_domain(url), "title": title, "price": price, "url": url, "image": candidate.get("image") or "", "shipping": offer.get("shipping") or "", "source": "dataforseo", "matchConfidence": confidence, "rank": index})
-                if len([offer for offer in offers if offer.get("price", 0) > 0]) >= limit:
+                if len([offer for offer in offers if offer.get("price", 0) > 0]) >= target_offer_pool:
                     break
 
-            direct_offer = _candidate_direct_offer(candidate, brand, product_name)
+            direct_offer = _candidate_direct_offer(candidate, brand, product_name, family_name)
             if direct_offer:
                 dedupe_key = (normalize_text(direct_offer.get("retailer")), normalize_text(direct_offer.get("title")), normalize_text(direct_offer.get("url")))
                 if dedupe_key not in seen:
                     seen.add(dedupe_key)
                     offers.append(direct_offer)
 
-        if len([offer for offer in offers if offer.get("price", 0) > 0]) >= limit:
+        if len([offer for offer in offers if offer.get("price", 0) > 0]) >= target_offer_pool:
             break
 
     deduped = []
     final_seen = set()
     for offer in offers:
         title, url, price = str(offer.get("title") or "").strip(), str(offer.get("url") or "").strip(), _extract_price(offer.get("price"))
-        confidence = title_match_confidence(title or product_name, brand, product_name)
-        if not title or not url or confidence < 35 or not is_live_product_url(url):
+        confidence = price_offer_match_confidence(title or product_name, brand, product_name, family_name)
+        if not title or not url or confidence < 45 or not is_live_product_url(url):
             continue
         dedupe_key = (normalize_text(offer.get("retailer")), normalize_text(title), normalize_text(url))
         if dedupe_key in final_seen:
@@ -1297,14 +1372,7 @@ def find_price_matches(brand, product_name, product_url="", limit=8):
         }
         deduped.append(normalized_offer)
 
-    deduped.sort(
-        key=lambda offer: (
-            offer.get("price", 0) <= 0,
-            offer.get("price", 0) if offer.get("price", 0) > 0 else 10**9,
-            -(offer.get("matchConfidence") or 0),
-            normalize_text(offer.get("retailer")),
-        )
-    )
+    deduped.sort(key=price_offer_sort_key)
 
     final_offers = deduped[:limit]
     _save_persistent_cache(_price_match_cache, "price-match", key, final_offers)
