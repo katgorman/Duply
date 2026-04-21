@@ -46,11 +46,11 @@ const CATEGORY_ICONS: Record<
   string,
   { library: 'ionicons' | 'material'; name: string }
 > = {
-  face: { library: 'material', name: 'brush-variant' },
+  face: { library: 'ionicons', name: 'brush-outline' },
   lips: { library: 'material', name: 'lipstick' },
   eyes: { library: 'ionicons', name: 'eye' },
   skincare: { library: 'ionicons', name: 'water' },
-  nails: { library: 'material', name: 'nail-polish' },
+  nails: { library: 'material', name: 'nail' },
   other: { library: 'ionicons', name: 'apps' },
 };
 
