@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { Asset } from 'expo-asset';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Search, TrendingUp } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SvgUri } from 'react-native-svg';
 import ProductCard from '../../components/ProductCard';
 import { ProductCardSkeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
@@ -19,15 +20,13 @@ import { useActivity } from '../../hooks/useActivity';
 import { useSearch } from '../../hooks/useProducts';
 import { prefetchDupesForProduct, seedProductCache } from '../../services/api';
 
+const BRAND_LOGO_URI = Asset.fromModule(require('../../assets/images/duply-logo-background.svg')).uri;
+const BRAND_WORDMARK_URI = Asset.fromModule(require('../../assets/images/duply-logo-text.svg')).uri;
+
 function MarqueeLogo() {
   return (
     <View style={styles.marqueeLogoFrame}>
-      <Image
-        source={require('../../assets/images/duply-wordmark.png')}
-        style={styles.marqueeLogoImage}
-        contentFit="contain"
-        accessibilityLabel={"d\u00fcply"}
-      />
+      <SvgUri uri={BRAND_WORDMARK_URI} width="100%" height="100%" />
     </View>
   );
 }
@@ -88,16 +87,11 @@ export default function HomeScreen() {
           style={({ pressed }) => [styles.topSideSlot, pressed && styles.brandLogoPressed]}
         >
           <View style={styles.brandLogoFrame}>
-            <Image source={require('../../assets/images/duply-logo.png')} style={styles.brandLogoImage} contentFit="contain" />
+            <SvgUri uri={BRAND_LOGO_URI} width="100%" height="100%" />
           </View>
         </Pressable>
         <View style={styles.brandWordmarkFrame}>
-          <Image
-            source={require('../../assets/images/duply-wordmark.png')}
-            style={styles.brandWordmarkImage}
-            contentFit="contain"
-            accessibilityLabel={"d\u00fcply"}
-          />
+          <SvgUri uri={BRAND_WORDMARK_URI} width="100%" height="100%" />
         </View>
         <View style={[styles.topSideSlot, styles.topSideSlotRight]}>
           <View style={styles.betaBadge}>

@@ -48,8 +48,8 @@ const CATEGORY_ART: Record<
   { uri: string; scale: number }
 > = {
   face: { uri: Asset.fromModule(require('../../assets/category-art/3.svg')).uri, scale: 1.12 },
-  lips: { uri: Asset.fromModule(require('../../assets/category-art/4.svg')).uri, scale: 1.04 },
-  eyes: { uri: Asset.fromModule(require('../../assets/category-art/5.svg')).uri, scale: 1.18 },
+  eyes: { uri: Asset.fromModule(require('../../assets/category-art/4.svg')).uri, scale: 1.04 },
+  lips: { uri: Asset.fromModule(require('../../assets/category-art/5.svg')).uri, scale: 1.18 },
   skincare: { uri: Asset.fromModule(require('../../assets/category-art/6.svg')).uri, scale: 1.08 },
   nails: { uri: Asset.fromModule(require('../../assets/category-art/7.svg')).uri, scale: 1.02 },
   other: { uri: Asset.fromModule(require('../../assets/category-art/8.svg')).uri, scale: 1.2 },

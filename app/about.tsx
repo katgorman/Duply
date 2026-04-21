@@ -1,10 +1,14 @@
-import { Image } from 'expo-image';
+import { Asset } from 'expo-asset';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ArrowLeft, ChevronRight, FileText, Mail, Shield } from 'react-native-feather';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SvgUri } from 'react-native-svg';
 import { colors, radius, spacing, typography } from '../constants/theme';
+
+const BRAND_LOGO_URI = Asset.fromModule(require('../assets/images/duply-logo-background.svg')).uri;
+const BRAND_WORDMARK_URI = Asset.fromModule(require('../assets/images/duply-logo-text.svg')).uri;
 
 export default function AboutScreen() {
   const router = useRouter();
@@ -21,8 +25,12 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.brandSection}>
-          <Image source={require('../assets/images/duply-logo.png')} style={styles.brandLogo} contentFit="contain" />
-          <Image source={require('../assets/images/duply-wordmark.png')} style={styles.brandWordmark} contentFit="contain" />
+          <View style={styles.brandLogoFrame}>
+            <SvgUri uri={BRAND_LOGO_URI} width="100%" height="100%" />
+          </View>
+          <View style={styles.brandWordmarkWrap}>
+            <SvgUri uri={BRAND_WORDMARK_URI} width="100%" height="100%" />
+          </View>
           <Text style={styles.version}>Version 1.0.0</Text>
           <Text style={styles.description}>
             Search products from your product catalog, open rich product pages, compare model-ranked dupes with
@@ -118,10 +126,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xxl,
   },
+  brandLogoFrame: {
+    width: 120,
+    height: 120,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: colors.cream,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    marginBottom: spacing.md,
+  },
   brandLogo: {
     width: 120,
     height: 120,
     marginBottom: spacing.md,
+  },
+  brandWordmarkWrap: {
+    width: 220,
+    height: 68,
+    marginBottom: spacing.xs,
   },
   brandWordmark: {
     width: 220,
