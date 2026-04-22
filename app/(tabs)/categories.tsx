@@ -6,9 +6,9 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Skeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
-import { useCategories, useFeaturedDupes, useProductsByCategory } from '../../hooks/useProducts';
+import { useCategories } from '../../hooks/useProducts';
 import { prefetchCategoryPage } from '../../services/api';
-import type { Category, Dupe, Product } from '../../services/api';
+import type { Category } from '../../services/api';
 
 const FALLBACK_CATEGORIES: Category[] = [
   { id: 'face', name: 'Face', emoji: '', productType: 'face', color: '#F7C6D9' },
@@ -18,29 +18,6 @@ const FALLBACK_CATEGORIES: Category[] = [
   { id: 'nails', name: 'Nails', emoji: '', productType: 'nails', color: '#FFF2DC' },
   { id: 'other', name: 'Other', emoji: '', productType: 'other', color: '#2A0B26' },
 ];
-
-const FEATURED_COLLECTIONS = [
-  {
-    id: 'face-preview',
-    title: 'Face Base Dupes',
-    category: 'face',
-  },
-  {
-    id: 'lips-preview',
-    title: 'Luxury Lip Alternatives',
-    category: 'lips',
-  },
-  {
-    id: 'eyes-preview',
-    title: 'Eye Makeup Finds',
-    category: 'eyes',
-  },
-  {
-    id: 'skincare-preview',
-    title: 'Skincare Standouts',
-    category: 'skincare',
-  },
-] as const;
 
 const CATEGORY_ART: Record<
   string,
@@ -53,28 +30,6 @@ const CATEGORY_ART: Record<
   nails: { source: require('../../assets/category-art/7.png'), scale: 1.02 },
   other: { source: require('../../assets/category-art/8.png'), scale: 0.96 },
 };
-
-function SectionHeader({
-  title,
-  loading = false,
-}: {
-  title: string;
-  loading?: boolean;
-}) {
-  return (
-    <View style={styles.sectionHeaderRow}>
-      <View style={styles.sectionHeaderCopy}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-      </View>
-      {loading ? (
-        <View style={styles.loadingPill}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.loadingPillText}>Loading</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
 
 function CategoryTile({
   category,
@@ -131,156 +86,13 @@ function CategoryTile({
   );
 }
 
-function StandoutDupeCard({
-  item,
-  onPress,
-}: {
-  item: Dupe;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.dupeRailCard, pressed && styles.cardPressed]}>
-      <View style={styles.dupeMetricRow}>
-        <View style={styles.dupeMetricPill}>
-          <Text style={styles.dupeMetricText}>{item.similarity}% match</Text>
-        </View>
-        <View style={[styles.dupeMetricPill, styles.dupeMetricPillAccent]}>
-          <Text style={styles.dupeMetricText}>Save ${item.savings.toFixed(2)}</Text>
-        </View>
-      </View>
-      <Text style={styles.dupeRailTitle} numberOfLines={2}>
-        {item.original.familyName || item.original.name}
-      </Text>
-      <Text style={styles.dupeRailSubtitle} numberOfLines={2}>
-        Try {item.dupe.brand} {item.dupe.familyName || item.dupe.name}
-      </Text>
-      <Text style={styles.dupeRailFoot}>Open comparison</Text>
-    </Pressable>
-  );
-}
-
-function StandoutDupeSkeletonCard() {
-  return (
-    <View style={styles.dupeRailCard}>
-      <View style={styles.dupeMetricRow}>
-        <Skeleton width={82} height={28} borderRadius={radius.full} />
-        <Skeleton width={88} height={28} borderRadius={radius.full} />
-      </View>
-      <Skeleton width="84%" height={18} style={{ marginTop: spacing.lg }} />
-      <Skeleton width="74%" height={18} style={{ marginTop: spacing.xs }} />
-      <Skeleton width="92%" height={14} style={{ marginTop: spacing.md }} />
-      <Skeleton width="56%" height={14} style={{ marginTop: spacing.xs }} />
-      <Skeleton width={96} height={14} style={{ marginTop: spacing.lg }} />
-    </View>
-  );
-}
-
-function RailEmptyCard({
-  title,
-}: {
-  title: string;
-}) {
-  return (
-    <View style={styles.emptyRailCard}>
-      <Text style={styles.emptyRailTitle}>{title}</Text>
-    </View>
-  );
-}
-
-function FeaturedCollectionCard({
-  title,
-  items,
-  loading,
-  onPress,
-}: {
-  title: string;
-  items: Product[];
-  loading: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.collectionRailCard, pressed && styles.cardPressed]}>
-      <View style={styles.collectionCardTopRow}>
-        <Text style={styles.collectionRailTitle}>{title}</Text>
-        <View style={styles.collectionCountBadge}>
-          <Text style={styles.collectionCountText}>{items.length || '--'}</Text>
-        </View>
-      </View>
-
-      {items.length > 0 ? (
-        <View style={styles.collectionTagRow}>
-          {items.slice(0, 3).map(item => (
-            <View key={item.id} style={styles.collectionTag}>
-              <Text style={styles.collectionTagText} numberOfLines={1}>
-                {item.familyName || item.name}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : loading ? (
-        <View style={styles.collectionTagRow}>
-          {[0, 1, 2].map(index => (
-            <Skeleton
-              key={index}
-              width={index === 1 ? 118 : 86}
-              height={28}
-              borderRadius={radius.full}
-            />
-          ))}
-        </View>
-      ) : (
-        <View style={styles.collectionEmptyBox}>
-          <Text style={styles.collectionEmptyText}>Preview picks are still warming up.</Text>
-        </View>
-      )}
-
-      <Text style={styles.collectionRailFoot}>Open collection</Text>
-    </Pressable>
-  );
-}
-
 export default function CategoriesScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const compactCategoryLayout = width < 760;
   const { data, loading: categoriesLoading } = useCategories();
-  const { data: featuredDupes, loading: featuredDupesLoading } = useFeaturedDupes();
-  const { data: facePreview, loading: facePreviewLoading } = useProductsByCategory('face', {
-    page: 1,
-    pageSize: 3,
-    sort: 'popular',
-  });
-  const { data: lipsPreview, loading: lipsPreviewLoading } = useProductsByCategory('lips', {
-    page: 1,
-    pageSize: 3,
-    sort: 'popular',
-  });
-  const { data: eyesPreview, loading: eyesPreviewLoading } = useProductsByCategory('eyes', {
-    page: 1,
-    pageSize: 3,
-    sort: 'popular',
-  });
-  const { data: skincarePreview, loading: skincarePreviewLoading } = useProductsByCategory('skincare', {
-    page: 1,
-    pageSize: 3,
-    sort: 'popular',
-  });
 
   const categories = data?.length ? data : FALLBACK_CATEGORIES;
-  const previewData: Record<string, { items: Product[]; loading: boolean }> = {
-    face: { items: facePreview?.items ?? [], loading: facePreviewLoading },
-    lips: { items: lipsPreview?.items ?? [], loading: lipsPreviewLoading },
-    eyes: { items: eyesPreview?.items ?? [], loading: eyesPreviewLoading },
-    skincare: { items: skincarePreview?.items ?? [], loading: skincarePreviewLoading },
-  };
-  const featuredCollections = FEATURED_COLLECTIONS.map(collection => ({
-    ...collection,
-    ...(previewData[collection.category] ?? { items: [], loading: false }),
-  }));
-  const standoutDupes = [...(featuredDupes || [])]
-    .sort((left, right) => right.savings - left.savings || right.similarity - left.similarity)
-    .slice(0, 3);
-  const collectionRailLoading = featuredCollections.some(collection => collection.loading && collection.items.length === 0);
 
   useEffect(() => {
     categories.forEach(category => {
@@ -326,69 +138,6 @@ export default function CategoriesScreen() {
                 />
               ))}
             </View>
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.sectionBlock}>
-            <SectionHeader
-              title="Standout Dupe Picks"
-              loading={featuredDupesLoading && standoutDupes.length === 0}
-            />
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.rail}
-            >
-              {standoutDupes.length > 0 ? (
-                standoutDupes.map(item => (
-                  <StandoutDupeCard
-                    key={item.id}
-                    item={item}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/productDetails',
-                        params: {
-                          originalId: item.original.id,
-                          dupeProductId: item.dupe.id,
-                          similarity: String(item.similarity),
-                          matchReason: item.matchReason || '',
-                          savings: String(item.savings),
-                        },
-                      })
-                    }
-                  />
-                ))
-              ) : featuredDupesLoading ? (
-                [0, 1, 2].map(index => <StandoutDupeSkeletonCard key={index} />)
-              ) : (
-                <RailEmptyCard
-                  title="Standout comparisons are still warming up."
-                />
-              )}
-            </ScrollView>
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(160).duration(350)} style={styles.sectionBlock}>
-            <SectionHeader
-              title="Featured Collections"
-              loading={collectionRailLoading}
-            />
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.rail}
-            >
-              {featuredCollections.map(collection => (
-                <FeaturedCollectionCard
-                  key={collection.id}
-                  title={collection.title}
-                  items={collection.items}
-                  loading={collection.loading}
-                  onPress={() => openCategory(collection.category, collection.title)}
-                />
-              ))}
-            </ScrollView>
           </Animated.View>
         </ScrollView>
       </View>
@@ -436,20 +185,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
     ...shadows.sm,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  sectionHeaderCopy: {
-    flex: 1,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    color: colors.primary,
-    textTransform: 'uppercase',
   },
   loadingPill: {
     flexDirection: 'row',
@@ -606,146 +341,5 @@ const styles = StyleSheet.create({
   },
   categoryCountCompact: {
     fontSize: 15,
-  },
-  rail: {
-    gap: spacing.md,
-    paddingBottom: spacing.xs,
-  },
-  dupeRailCard: {
-    width: 270,
-    minHeight: 178,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    justifyContent: 'space-between',
-  },
-  dupeMetricRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  dupeMetricPill: {
-    borderRadius: radius.full,
-    backgroundColor: colors.cream,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  dupeMetricPillAccent: {
-    backgroundColor: colors.pink,
-  },
-  dupeMetricText: {
-    ...typography.smallBold,
-    color: colors.primary,
-  },
-  dupeRailTitle: {
-    ...typography.bodyBold,
-    color: colors.primary,
-    marginTop: spacing.md,
-  },
-  dupeRailSubtitle: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-  },
-  dupeRailFoot: {
-    ...typography.smallBold,
-    color: colors.accent,
-    marginTop: spacing.lg,
-    textTransform: 'uppercase',
-  },
-  emptyRailCard: {
-    width: 270,
-    minHeight: 140,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-    padding: spacing.lg,
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  emptyRailTitle: {
-    ...typography.bodyBold,
-    color: colors.primary,
-  },
-  collectionRailCard: {
-    width: 252,
-    minHeight: 168,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    justifyContent: 'space-between',
-  },
-  collectionCardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  collectionRailTitle: {
-    ...typography.bodyBold,
-    color: colors.primary,
-    flex: 1,
-  },
-  collectionCountBadge: {
-    minWidth: 34,
-    borderRadius: radius.full,
-    backgroundColor: colors.softGold,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    alignItems: 'center',
-  },
-  collectionCountText: {
-    ...typography.smallBold,
-    color: colors.primary,
-  },
-  collectionTagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  collectionTag: {
-    borderRadius: radius.full,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderColor: 'transparent',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    maxWidth: '100%',
-  },
-  collectionTagText: {
-    ...typography.small,
-    color: colors.textSecondary,
-    textAlign: 'right',
-  },
-  collectionEmptyBox: {
-    marginTop: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  collectionEmptyText: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  collectionRailFoot: {
-    ...typography.smallBold,
-    color: colors.accent,
-    marginTop: spacing.lg,
-    textTransform: 'uppercase',
   },
 });
