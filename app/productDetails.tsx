@@ -626,9 +626,9 @@ export default function ProductDetailsScreen() {
             <Text style={styles.sectionTitle}>Price Match Results</Text>
             <View style={styles.priceMatchBox}>
               <View style={styles.priceMatchHeader}>
-                <View>
+                <View style={styles.priceMatchHeaderText}>
                   <Text style={styles.priceMatchEyebrow}>Top 3 live retailer offers</Text>
-                  <Text style={styles.priceMatchTitle}>
+                  <Text style={styles.priceMatchTitle} numberOfLines={2}>
                     {visiblePriceOffers[0]
                       ? `$${visiblePriceOffers[0].price.toFixed(2)} at ${visiblePriceOffers[0].retailer}`
                       : priceOffersLoading
@@ -639,8 +639,8 @@ export default function ProductDetailsScreen() {
                 {priceOffersLoading ? (
                   <View style={styles.priceMatchStatusPill}>
                     <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.priceMatchStatus}>
-                      {visiblePriceOffers.length > 0 ? 'Refreshing live offers' : 'Scanning retailers'}
+                    <Text style={styles.priceMatchStatus} numberOfLines={1}>
+                      {visiblePriceOffers.length > 0 ? 'Refreshing' : 'Scanning'}
                     </Text>
                   </View>
                 ) : null}
@@ -1105,6 +1105,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  priceMatchHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
   priceMatchEyebrow: {
     ...typography.smallBold,
     color: colors.textMuted,
@@ -1126,6 +1130,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
     backgroundColor: colors.accentLight,
+    flexShrink: 0,
+    maxWidth: 120,
   },
   priceMatchStatus: {
     ...typography.smallBold,

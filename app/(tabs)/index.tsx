@@ -53,11 +53,7 @@ export default function HomeScreen() {
         <View style={styles.brandWordmarkFrame}>
           <SvgUri uri={BRAND_WORDMARK_URI} width="100%" height="100%" />
         </View>
-        <View style={[styles.topSideSlot, styles.topSideSlotRight]}>
-          <View style={styles.betaBadge}>
-            <Text style={styles.betaBadgeText}>Beta</Text>
-          </View>
-        </View>
+        <View style={[styles.topSideSlot, styles.topSideSlotRight]} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -268,22 +264,6 @@ const styles = StyleSheet.create({
   brandLogoPressed: {
     opacity: 0.72,
     transform: [{ scale: 0.96 }],
-  },
-  betaBadge: {
-    minWidth: 60,
-    height: 32,
-    paddingHorizontal: spacing.md,
-    borderRadius: 16,
-    backgroundColor: colors.cream,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  betaBadgeText: {
-    ...typography.smallBold,
-    color: colors.primary,
-    textTransform: 'uppercase',
   },
   brandWordmarkFrame: {
     flex: 1,
