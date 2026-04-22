@@ -580,7 +580,8 @@ def _poll_task(path_template, task_id):
         status_code = int(last.get("status_code") or 0)
         if status_code == 20000:
             return last.get("result") or []
-        if status_code >= 40000:
+        # 40501 = In Progress, 40602 = In Queue — keep polling
+        if status_code >= 40000 and status_code not in (40501, 40602):
             raise RuntimeError(f"DataForSEO task failed: {json.dumps(last)}")
         time.sleep(DATAFORSEO_POLL_INTERVAL_SECONDS)
     raise RuntimeError(f"DataForSEO task timed out: {json.dumps(last)}")
@@ -622,7 +623,7 @@ def _extract_candidates(result, fallback_brand=""):
         title = str(_extract(item, "title", "name") or "").strip()
         if not title:
             continue
-        image = _extract(item, "image_url", "thumbnail", "image")
+        image = _extract(item, "image_url", "thumbnail", "image", "product_images")
         image = image[0] if isinstance(image, list) and image else image or ""
         candidates.append({
             "title": title,
