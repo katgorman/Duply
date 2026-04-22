@@ -34,6 +34,21 @@ def _safe_float(value):
         return 0.0
 
 
+_BAD_IMAGE_FRAGMENTS = {"logo", "placeholder", "default", "missing", "noimage", "blank", "fallback"}
+
+def _is_valid_product_image(url):
+    """Return False for relative paths, logo images, and other non-product images."""
+    url = str(url or "").strip()
+    if not url or not url.startswith(("http://", "https://")):
+        return False
+    lower = url.lower()
+    return not any(frag in lower for frag in _BAD_IMAGE_FRAGMENTS)
+
+
+def _clean_image(url):
+    return url if _is_valid_product_image(url) else ""
+
+
 def _safe_int(value, default=0):
     try:
         if value is None or value == "":
@@ -798,7 +813,7 @@ def _normalize_firestore_product(doc):
         "type": product_type,
         "price": data.get("Price_USD") or data.get("price") or data.get("salePrice") or data.get("current_price") or 0,
         "rating": data.get("Rating") or data.get("rating") or data.get("avgRating") or 0,
-        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or "",
+        "image": _clean_image(data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or ""),
         "raw": data,
     }
 
@@ -1314,7 +1329,7 @@ def _normalize_catalog_record(data, doc_id=""):
             data.get("Price_USD") or data.get("price") or data.get("salePrice") or data.get("current_price") or 0
         ),
         "rating": data.get("Rating") or data.get("rating") or data.get("avgRating") or 0,
-        "image": data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or "",
+        "image": _clean_image(data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or ""),
         "raw": data,
     })
 
@@ -1479,7 +1494,7 @@ def _normalize_upsert_product(product):
     )
     price = _safe_float(product.get("price"))
     rating = _safe_float(product.get("rating"))
-    image = str(product.get("image") or product.get("image_link") or product.get("imageUrl") or "").strip()
+    image = _clean_image(str(product.get("image") or product.get("image_link") or product.get("imageUrl") or "").strip())
     product_url = (
         product.get("productUrl")
         or product.get("title-href")

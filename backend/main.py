@@ -35,6 +35,7 @@ from firestore_products import (
     set_admin_job_state,
     upsert_firestore_products,
     warm_catalog_cache,
+    _clean_image,
 )
 from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 from web_products import (
@@ -586,7 +587,7 @@ def _product_from_record(record, fallback=None, enrich_image=False):
             offer_image = str(offer.get("image") or "").strip()
             if offer_image:
                 break
-    image = record.get("image") or raw.get("image") or raw.get("imageUrl") or offer_image or fallback.get("image", "")
+    image = _clean_image(record.get("image") or raw.get("image") or raw.get("imageUrl") or offer_image or fallback.get("image", ""))
     product_url = (
         record.get("productUrl")
         or record.get("title-href")
@@ -2131,6 +2132,41 @@ def admin_debug_images(brand: str = "Glossier", limit: int = 10):
             })
         has_img = sum(1 for r in results if r["image"] or r["offer_image"])
         return {"brand": brand, "checked": len(results), "has_image": has_img, "docs": results}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.post("/admin/clear-bad-images")
+def admin_clear_bad_images(batch_size: int = 500):
+    """Null out bad image fields (logo/placeholder URLs) from all Firestore products."""
+    from firestore_products import PRODUCTS_COLLECTION, db as _debug_db, _is_valid_product_image
+    if _debug_db is None:
+        return {"error": "Firestore not connected"}
+    try:
+        cleared = 0
+        scanned = 0
+        last_doc = None
+        col = _debug_db.collection(PRODUCTS_COLLECTION)
+        while True:
+            query = col.order_by("__name__").limit(batch_size)
+            if last_doc is not None:
+                query = query.start_after(last_doc)
+            page = list(query.stream())
+            if not page:
+                break
+            batch = _debug_db.batch()
+            for doc in page:
+                scanned += 1
+                data = doc.to_dict() or {}
+                img = data.get("image") or ""
+                if img and not _is_valid_product_image(img):
+                    batch.update(doc.reference, {"image": ""})
+                    cleared += 1
+            batch.commit()
+            if len(page) < batch_size:
+                break
+            last_doc = page[-1]
+        return {"scanned": scanned, "cleared": cleared}
     except Exception as exc:
         return {"error": str(exc)}
 
