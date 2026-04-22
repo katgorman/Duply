@@ -54,47 +54,42 @@ def fix_bad_images(batch_size=500, dry_run=False):
     no_url = 0
     no_image_found = 0
 
-    last_doc = None
     col = db.collection(PRODUCTS_COLLECTION)
 
-    print(f"Starting image fix scan (batch_size={batch_size}, dry_run={dry_run})")
+    # Only fetch docs that have the known bad image value — far fewer docs,
+    # avoids full-collection scan timeout and the SDK _retry bug.
+    BAD_VALUES = ["/images/Sephora_logo.jpg"]
 
-    while True:
-        query = col.order_by("__name__").limit(batch_size)
-        if last_doc is not None:
-            query = query.start_after(last_doc)
+    write_batch = db.batch()
+    writes_in_batch = 0
 
-        page = list(query.stream())
-        if not page:
-            break
+    for bad_value in BAD_VALUES:
+        print(f"Querying docs where image == '{bad_value}' ...")
+        try:
+            docs = list(col.where("image", "==", bad_value).limit(100000).stream())
+        except Exception as exc:
+            print(f"  ERROR fetching docs: {exc}", file=sys.stderr)
+            continue
 
-        write_batch = db.batch()
-        writes_in_batch = 0
+        print(f"  Found {len(docs)} docs to fix")
 
-        for doc in page:
+        for doc in docs:
             scanned += 1
             data = doc.to_dict() or {}
-            stored_image = data.get("image") or ""
-
-            if _is_valid_product_image(stored_image):
-                continue
-
             needs_fix += 1
 
-            # Try offer image first (already in Firestore, no network call)
             new_image = _best_offer_image(data)
 
-            # Fall back to re-fetching the product page
             if not new_image:
                 url = _product_url(data)
                 if not url:
                     no_url += 1
-                    continue
-                new_image = _find_source_page_image(url)
+                    new_image = ""
+                else:
+                    new_image = _find_source_page_image(url)
 
             if not new_image:
                 no_image_found += 1
-                # Still clear the bad value so it doesn't stay as a broken logo
                 new_image = ""
 
             if not dry_run:
@@ -109,16 +104,12 @@ def fix_bad_images(batch_size=500, dry_run=False):
             status = "SET" if new_image else "CLEARED"
             brand = data.get("brand") or ""
             name = data.get("product_name") or ""
-            print(f"  [{status}] {brand} — {name}: {new_image[:80] or '(empty)'}")
+            print(f"  [{status}] {brand} - {name[:60]}: {new_image[:80] or '(empty)'}")
 
-        if writes_in_batch > 0 and not dry_run:
-            write_batch.commit()
+        print(f"  subtotal: scanned={scanned} updated={updated} no_url={no_url} no_image_found={no_image_found}")
 
-        print(f"  scanned={scanned} needs_fix={needs_fix} updated={updated} no_url={no_url} no_image_found={no_image_found}")
-
-        if len(page) < batch_size:
-            break
-        last_doc = page[-1]
+    if writes_in_batch > 0 and not dry_run:
+        write_batch.commit()
 
     print(f"\nDone. scanned={scanned}, needs_fix={needs_fix}, updated={updated}, no_url={no_url}, no_image_found={no_image_found}")
 
