@@ -2100,6 +2100,82 @@ async def create_admin_job(request: Request):
     return state
 
 
+@app.get("/admin/debug/search")
+def admin_debug_search(q: str = "glossier"):
+    from firestore_products import (
+        _catalog_products, _catalog_search_prefix_index, _catalog_products_by_id,
+        _load_catalog_products, _normalize_catalog_record, PRODUCTS_COLLECTION,
+        _is_searchable_catalog_product, db as _debug_db,
+    )
+    _load_catalog_products()
+    normalized_q = _normalize_text(q)
+    tokens = [t for t in normalized_q.split() if t]
+
+    catalog_size = len(_catalog_products or [])
+    prefix_index_size = len(_catalog_search_prefix_index or {})
+
+    # Check which tokens are in the prefix index
+    token_hits = {}
+    for token in tokens:
+        ids_in_index = list((_catalog_search_prefix_index or {}).get(token) or [])
+        token_hits[token] = {"count": len(ids_in_index), "sample_ids": ids_in_index[:5]}
+
+    # Direct Firestore brand search
+    raw_firestore = []
+    if _debug_db is not None:
+        try:
+            docs = list(_debug_db.collection(PRODUCTS_COLLECTION)
+                        .where("brand", "==", "Glossier").limit(5).stream())
+            for d in docs:
+                data = d.to_dict() or {}
+                raw_firestore.append({
+                    "id": d.id,
+                    "brand": data.get("brand") or data.get("Brand"),
+                    "product_name": data.get("product_name") or data.get("Product_Name") or data.get("name"),
+                    "price": data.get("price"),
+                    "category": data.get("category") or data.get("Category"),
+                    "productUrl": data.get("productUrl") or (data.get("raw") or {}).get("productUrl"),
+                })
+        except Exception as exc:
+            raw_firestore = [{"error": str(exc)}]
+
+    # Check if raw docs pass _is_searchable_catalog_product
+    searchable_check = []
+    if _debug_db is not None:
+        try:
+            docs = list(_debug_db.collection(PRODUCTS_COLLECTION)
+                        .where("brand", "==", "Glossier").limit(5).stream())
+            for d in docs:
+                normalized = _normalize_catalog_record(d.to_dict() or {}, d.id)
+                searchable_check.append({
+                    "id": d.id,
+                    "has_brand": bool(normalized.get("brand")),
+                    "has_name": bool(normalized.get("product_name")),
+                    "searchable": _is_searchable_catalog_product(normalized),
+                    "url": normalized.get("raw", {}).get("productUrl") if isinstance(normalized.get("raw"), dict) else "",
+                })
+        except Exception as exc:
+            searchable_check = [{"error": str(exc)}]
+
+    # Run the actual search
+    raw_search_results = search_firestore_products(q, limit=5)
+    coerced_results = []
+    for r in raw_search_results:
+        coerced = _coerce_to_search_product(r, fallback={"id": r.get("firestore_id", "")})
+        coerced_results.append({"raw_brand": r.get("brand"), "coerced": bool(coerced)})
+
+    return {
+        "query": q,
+        "catalog_size": catalog_size,
+        "prefix_index_size": prefix_index_size,
+        "token_hits": token_hits,
+        "raw_firestore_glossier": raw_firestore,
+        "searchable_check": searchable_check,
+        "search_results_count": len(raw_search_results),
+        "coerced_results": coerced_results,
+    }
+
+
 @app.get("/admin/jobs/{job_id}")
 def get_admin_job(job_id: str):
     state = _load_admin_job_state(job_id)
