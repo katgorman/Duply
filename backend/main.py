@@ -54,16 +54,15 @@ from web_products import (
     title_match_confidence,
 )
 
-WARM_CATALOG_ON_STARTUP = os.getenv("DUPLY_WARM_CATALOG_ON_STARTUP", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    if WARM_CATALOG_ON_STARTUP:
+    import threading
+    def _bg_warm():
         try:
             warm_catalog_cache()
         except Exception:
             pass
+    threading.Thread(target=_bg_warm, daemon=True).start()
     yield
 
 
@@ -2317,7 +2316,7 @@ def search_products(q: str, limit: int = 8):
     combined = _cache_get_search_candidates(
         q,
         local_limit=max(16, normalized_limit * 3),
-        web_limit=max(8, normalized_limit * 2),
+        web_limit=0,
         max_results=max(24, normalized_limit * 3),
     )
     grouped = _group_products_by_family(combined)
