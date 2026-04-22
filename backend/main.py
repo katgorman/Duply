@@ -2135,13 +2135,19 @@ def admin_debug_search(q: str = "glossier"):
                         .where("brand", "==", "Glossier").limit(5).stream())
             for d in docs:
                 data = d.to_dict() or {}
+                raw = data.get("raw") or {}
+                img = data.get("image") or data.get("imageUrl") or raw.get("image") or ""
+                offers = data.get("merchantOffers") or raw.get("merchantOffers") or []
+                offer_img = next((o.get("image") for o in offers if isinstance(o, dict) and o.get("image")), "")
                 raw_firestore.append({
                     "id": d.id,
                     "brand": data.get("brand") or data.get("Brand"),
                     "product_name": data.get("product_name") or data.get("Product_Name") or data.get("name"),
                     "price": data.get("price"),
                     "category": data.get("category") or data.get("Category"),
-                    "productUrl": data.get("productUrl") or (data.get("raw") or {}).get("productUrl"),
+                    "productUrl": data.get("productUrl") or raw.get("productUrl"),
+                    "image": img[:80] if img else "",
+                    "offer_image": offer_img[:80] if offer_img else "",
                 })
         except Exception as exc:
             raw_firestore = [{"error": str(exc)}]
