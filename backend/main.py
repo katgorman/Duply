@@ -36,7 +36,7 @@ from firestore_products import (
     upsert_firestore_products,
     warm_catalog_cache,
 )
-from recommendation_system import find_dupes, get_recommendation_status, lookup_product, search_local_products
+from recommendation_system import find_dupes, get_recommendation_status, lookup_product
 from web_products import (
     augment_official_us_retailers,
     augment_firestore_catalog_with_top_brands,
@@ -1152,27 +1152,6 @@ def _search_products_once(q: str, local_limit: int, web_limit: int, max_results:
         combined.append(normalized_product)
         if len(combined) >= max_results:
             break
-
-    # Supplement with local metadata (covers brands not yet in Firestore)
-    if len(combined) < max_results:
-        metadata_results = search_local_products(q, limit=local_limit)
-        for product in metadata_results:
-            key = (
-                _normalize_text(product.get("brand")),
-                _normalize_text(product.get("product_name")),
-            )
-            if key in seen:
-                continue
-            normalized_product = _coerce_to_search_product(
-                product,
-                fallback={"id": ""},
-            )
-            if not normalized_product:
-                continue
-            seen.add(key)
-            combined.append(normalized_product)
-            if len(combined) >= max_results:
-                break
 
     resolved_web_limit = _resolved_search_web_limit(web_limit, len(combined))
     if resolved_web_limit > 0 and len(combined) < max_results:
@@ -2536,7 +2515,7 @@ async def get_dupes(request: Request):
                 },
                 enrich_image=False,
             )
-            original = _finalize_product(original, require_image=False)
+            original = _finalize_product(original, require_image=False, require_price=False)
         else:
             original = _finalize_product({
                 "id": f"{brand}-{name}".lower().replace(" ", "-"),
@@ -2556,7 +2535,7 @@ async def get_dupes(request: Request):
                 "productSize": "",
                 "skinType": "",
                 "raw": {},
-            }, require_image=False)
+            }, require_image=False, require_price=False)
 
         if not original:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -2587,6 +2566,12 @@ async def get_dupes(request: Request):
         output = []
 
         for item, ranked_record, firestore_record in zip(results, ranked_records, fetched_firestore):
+            # Model candidates from cosmetics_metadata.json have no firestore_id and may
+            # carry INR prices. Only accept them when we found a real Firestore record.
+            is_model_candidate = not ranked_record.get("firestore_id")
+            if is_model_candidate and firestore_record is None:
+                continue
+
             dupe_source = firestore_record or ranked_record
             dupe = _product_from_record(
                 dupe_source,
