@@ -139,6 +139,7 @@ CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "21600"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
 WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
 FIRESTORE_READ_TIMEOUT_SECONDS = max(1.0, float(os.getenv("FIRESTORE_READ_TIMEOUT_SECONDS", "2.5")))
+FIRESTORE_CATALOG_TIMEOUT_SECONDS = max(5.0, float(os.getenv("FIRESTORE_CATALOG_TIMEOUT_SECONDS", "20.0")))
 _search_cache = {}
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
 NON_US_COUNTRY_TLDS = {
@@ -666,14 +667,15 @@ def _prepare_catalog_product(product):
     return normalized
 
 
-def _run_firestore_read(callable_obj, default):
+def _run_firestore_read(callable_obj, default, timeout=None):
     if db is None:
         return default
 
+    effective_timeout = timeout if timeout is not None else FIRESTORE_READ_TIMEOUT_SECONDS
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(callable_obj)
     try:
-        return future.result(timeout=FIRESTORE_READ_TIMEOUT_SECONDS)
+        return future.result(timeout=effective_timeout)
     except (FutureTimeoutError, Exception):
         future.cancel()
         return default
@@ -1347,6 +1349,7 @@ def _load_catalog_products(force_refresh=False):
         docs = _run_firestore_read(
             lambda: list(db.collection(PRODUCTS_COLLECTION).stream()),
             [],
+            timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
         )
 
         for doc in docs:

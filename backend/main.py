@@ -2273,7 +2273,7 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
     combined = _cache_get_search_candidates(
         q,
         local_limit=target_count,
-        web_limit=min(max(18, normalized_page_size * 2), 36) if normalized_page == 1 else 0,
+        web_limit=0,
         max_results=target_count,
     )
     grouped = _group_products_by_family(combined)
