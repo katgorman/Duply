@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from firestore_products import (
     build_catalog_dedupe_key,
     build_catalog_product_id,
+    _clean_image,
     get_firestore_web_cache,
     normalize_product_type,
     normalize_catalog_price,
@@ -929,7 +930,12 @@ def _parse_official_retailer_product_page(url, retailer):
     )
     if isinstance(image, list):
         image = image[0] if image else ""
-    image = image or _find_source_page_image(final_url)
+    image = str(image or "").replace("\\/", "/").strip()
+    if image.startswith("//"):
+        image = f"https:{image}"
+    elif image.startswith("/"):
+        image = urljoin(final_url, image)
+    image = _clean_image(image) or _find_source_page_image(final_url)
     price = (
         offers.get("price")
         or _extract_meta_content(page_html, "product:price:amount")
