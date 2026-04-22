@@ -2100,24 +2100,32 @@ async def create_admin_job(request: Request):
     return state
 
 
+@app.get("/admin/clear-cache")
+def admin_clear_cache():
+    _clear_response_cache()
+    invalidate_catalog_cache()
+    return {"ok": True, "message": "Response cache and catalog cache cleared"}
+
+
 @app.get("/admin/debug/search")
 def admin_debug_search(q: str = "glossier"):
     from firestore_products import (
-        _catalog_products, _catalog_search_prefix_index, _catalog_products_by_id,
         _load_catalog_products, _normalize_catalog_record, PRODUCTS_COLLECTION,
         _is_searchable_catalog_product, db as _debug_db,
     )
+    import firestore_products as _fp_module
     _load_catalog_products()
     normalized_q = _normalize_text(q)
     tokens = [t for t in normalized_q.split() if t]
 
-    catalog_size = len(_catalog_products or [])
-    prefix_index_size = len(_catalog_search_prefix_index or {})
+    catalog_size = len(_fp_module._catalog_products or [])
+    prefix_index = _fp_module._catalog_search_prefix_index or {}
+    prefix_index_size = len(prefix_index)
 
     # Check which tokens are in the prefix index
     token_hits = {}
     for token in tokens:
-        ids_in_index = list((_catalog_search_prefix_index or {}).get(token) or [])
+        ids_in_index = list(prefix_index.get(token) or [])
         token_hits[token] = {"count": len(ids_in_index), "sample_ids": ids_in_index[:5]}
 
     # Direct Firestore brand search
@@ -2157,19 +2165,22 @@ def admin_debug_search(q: str = "glossier"):
         except Exception as exc:
             searchable_check = [{"error": str(exc)}]
 
-    # Run the actual search
+    # Run the actual search and warm the app-facing cache
     raw_search_results = search_firestore_products(q, limit=5)
     coerced_results = []
     for r in raw_search_results:
         coerced = _coerce_to_search_product(r, fallback={"id": r.get("firestore_id", "")})
         coerced_results.append({"raw_brand": r.get("brand"), "coerced": bool(coerced)})
 
+    # Also warm the search-candidates cache so the next app request is fast
+    _cache_get_search_candidates(q, local_limit=120, web_limit=0, max_results=120)
+
     return {
         "query": q,
         "catalog_size": catalog_size,
         "prefix_index_size": prefix_index_size,
         "token_hits": token_hits,
-        "raw_firestore_glossier": raw_firestore,
+        "raw_firestore_docs": raw_firestore,
         "searchable_check": searchable_check,
         "search_results_count": len(raw_search_results),
         "coerced_results": coerced_results,
