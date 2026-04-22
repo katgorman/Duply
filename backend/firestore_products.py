@@ -1323,6 +1323,28 @@ def _product_identity_key(product):
     return build_catalog_dedupe_key(product)
 
 
+def _stream_collection_paginated(collection_name, page_size=500, page_timeout=30.0):
+    """Stream an entire Firestore collection in pages to avoid single-request timeouts."""
+    all_docs = []
+    last_doc = None
+
+    while True:
+        query = db.collection(collection_name).order_by("__name__").limit(page_size)
+        if last_doc is not None:
+            query = query.start_after(last_doc)
+
+        page = _run_firestore_read(lambda q=query: list(q.stream()), [], timeout=page_timeout)
+        if not page:
+            break
+
+        all_docs.extend(page)
+        if len(page) < page_size:
+            break
+        last_doc = page[-1]
+
+    return all_docs
+
+
 def _load_catalog_products(force_refresh=False):
     global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at
 
@@ -1346,10 +1368,10 @@ def _load_catalog_products(force_refresh=False):
     seen_identity = set()
 
     if db is not None:
-        docs = _run_firestore_read(
-            lambda: list(db.collection(PRODUCTS_COLLECTION).stream()),
-            [],
-            timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
+        docs = _stream_collection_paginated(
+            PRODUCTS_COLLECTION,
+            page_size=500,
+            page_timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
         )
 
         for doc in docs:
