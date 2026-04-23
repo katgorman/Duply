@@ -2426,6 +2426,9 @@ def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str =
 
 @app.get("/products/category/{category_or_type}")
 def get_products_by_category(category_or_type: str, page: int = 1, page_size: int = 24, q: str = "", sort: str = "popular"):
+    guard = _catalog_guard()
+    if guard:
+        return guard
     normalized_page = max(page, 1)
     normalized_page_size = max(1, min(page_size, 96))
     cache_key = ("category", category_or_type, normalized_page, normalized_page_size, _normalize_text(q), sort)
@@ -2463,6 +2466,9 @@ def get_products_by_category(category_or_type: str, page: int = 1, page_size: in
 
 @app.get("/categories")
 def get_categories():
+    guard = _catalog_guard()
+    if guard:
+        return guard
     cache_key = ("categories",)
     cached = _cache_get(cache_key)
     if cached is not None:

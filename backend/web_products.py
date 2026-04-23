@@ -34,7 +34,7 @@ DATAFORSEO_LOCATION_CODE = int(os.getenv("DATAFORSEO_LOCATION_CODE", "2840"))
 DATAFORSEO_LANGUAGE_CODE = os.getenv("DATAFORSEO_LANGUAGE_CODE", "en").strip() or "en"
 DATAFORSEO_DEVICE = os.getenv("DATAFORSEO_DEVICE", "desktop").strip() or "desktop"
 DATAFORSEO_OS = os.getenv("DATAFORSEO_OS", "windows").strip() or "windows"
-DATAFORSEO_TASK_TIMEOUT_SECONDS = int(os.getenv("DATAFORSEO_TASK_TIMEOUT_SECONDS", "90"))
+DATAFORSEO_TASK_TIMEOUT_SECONDS = int(os.getenv("DATAFORSEO_TASK_TIMEOUT_SECONDS", "180"))
 DATAFORSEO_POLL_INTERVAL_SECONDS = float(os.getenv("DATAFORSEO_POLL_INTERVAL_SECONDS", "2.0"))
 SOURCE_IMAGE_LOOKUP_ENABLED = os.getenv("DUPLY_SOURCE_IMAGE_LOOKUP_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
 WEB_SEARCH_CACHE_TTL_SECONDS = int(os.getenv("DUPLY_WEB_SEARCH_CACHE_TTL_SECONDS", "3600"))
@@ -552,7 +552,7 @@ def _dataforseo_request(path, method="GET", payload=None):
         method=method,
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
@@ -574,14 +574,21 @@ def _poll_task(path_template, task_id):
     deadline = time.time() + DATAFORSEO_TASK_TIMEOUT_SECONDS
     last = {}
     while time.time() < deadline:
-        response = _dataforseo_request(path_template.format(task_id=task_id))
+        try:
+            response = _dataforseo_request(path_template.format(task_id=task_id))
+        except Exception:
+            time.sleep(DATAFORSEO_POLL_INTERVAL_SECONDS)
+            continue
         tasks = response.get("tasks") or []
         last = tasks[0] if tasks else {}
         status_code = int(last.get("status_code") or 0)
         if status_code == 20000:
             return last.get("result") or []
-        # 40501 = In Progress, 40602 = In Queue — keep polling
-        if status_code >= 40000 and status_code not in (40501, 40602):
+        # 40102 = No Search Results — not an error, just empty
+        if status_code == 40102:
+            return []
+        # 40501 = In Progress, 40601 = Task Handed, 40602 = In Queue — keep polling
+        if status_code >= 40000 and status_code not in (40501, 40601, 40602):
             raise RuntimeError(f"DataForSEO task failed: {json.dumps(last)}")
         time.sleep(DATAFORSEO_POLL_INTERVAL_SECONDS)
     raise RuntimeError(f"DataForSEO task timed out: {json.dumps(last)}")

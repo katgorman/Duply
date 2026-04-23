@@ -43,15 +43,20 @@ def _dfs_image_for_product(brand: str, product_name: str) -> str:
     query = f"{brand} {product_name}".strip()
     if not query:
         return ""
-    try:
-        result = _search_products_task(query, limit=5)
-        for r in result or []:
-            for c in _extract_candidates(r, fallback_brand=brand):
-                img = _clean_image(str(c.get("image") or ""))
-                if img:
-                    return img
-    except Exception as exc:
-        print(f"  DataForSEO error for '{query}': {exc}", file=sys.stderr)
+    for attempt in range(2):
+        try:
+            result = _search_products_task(query, limit=5)
+            for r in result or []:
+                for c in _extract_candidates(r, fallback_brand=brand):
+                    img = _clean_image(str(c.get("image") or ""))
+                    if img:
+                        return img
+            return ""
+        except Exception as exc:
+            if attempt == 0:
+                time.sleep(5)
+                continue
+            print(f"  DataForSEO error for '{query[:60]}': {exc}", file=sys.stderr)
     return ""
 
 
