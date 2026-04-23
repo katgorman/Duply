@@ -2077,7 +2077,13 @@ def _requested_admin_steps(value, default=ADMIN_JOB_DEFAULT_MAX_STEPS):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "catalogReady": is_catalog_loaded(), **get_recommendation_status()}
+    catalog_ready = is_catalog_loaded()
+    if not catalog_ready:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "catalogReady": False, "detail": "warming up"},
+        )
+    return {"ok": True, "catalogReady": True, **get_recommendation_status()}
 
 
 _ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
