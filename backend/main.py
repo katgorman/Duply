@@ -1352,13 +1352,10 @@ def _merge_price_offers(*offer_groups, brand="", name="", family_name="", limit=
     return merged[:limit]
 
 
-def _catalog_url_fallback_offer(product, brand="", name="", fallback_url=""):
-    if not product:
-        return None
-
-    raw = (product.get("raw") or {}) if isinstance(product.get("raw"), dict) else {}
+def _catalog_url_fallback_offer(product, brand="", name="", fallback_url="", fallback_price=0, fallback_image="", fallback_id=""):
+    raw = (product.get("raw") or {}) if isinstance((product or {}).get("raw"), dict) else {}
     url = str(
-        product.get("productUrl")
+        (product or {}).get("productUrl")
         or raw.get("productUrl")
         or raw.get("title-href")
         or fallback_url
@@ -1369,22 +1366,34 @@ def _catalog_url_fallback_offer(product, brand="", name="", fallback_url=""):
     if not is_supported_price_match_url(url):
         return None
 
-    price = _normalize_price(product.get("price"))
+    price = _normalize_price((product or {}).get("price") or fallback_price)
     if price <= 0:
         return None
 
     retailer = (
-        str(product.get("source") or raw.get("source") or "").strip()
+        str((product or {}).get("source") or raw.get("source") or "").strip()
         or (url.split("/")[2] if "://" in url else "catalog")
     )
+    identifier = (
+        (product or {}).get("firestore_id")
+        or (product or {}).get("id")
+        or fallback_id
+        or abs(hash((url, price))) % 10**12
+    )
+    title = str(
+        (product or {}).get("product_name")
+        or (product or {}).get("name")
+        or f"{brand} {name}".strip()
+    ).strip()
+    image = str((product or {}).get("image") or raw.get("image") or fallback_image or "").strip()
 
     return {
-        "id": f"catalog-fallback-{product.get('firestore_id') or product.get('id') or abs(hash((url, price))) % 10**12}",
+        "id": f"catalog-fallback-{identifier}",
         "retailer": retailer,
-        "title": str(product.get("product_name") or product.get("name") or f"{brand} {name}".strip()).strip(),
+        "title": title,
         "price": price,
         "url": url,
-        "image": str(product.get("image") or raw.get("image") or "").strip(),
+        "image": image,
         "shipping": "",
         "source": "catalog-fallback",
         "matchConfidence": 100,
@@ -2550,6 +2559,8 @@ async def get_price_matches(request: Request):
             return cached
 
         product = get_firestore_product_by_id(product_id) if product_id else None
+        request_price = _normalize_price(body.get("price"))
+        request_image = str(body.get("image") or "").strip()
         product_url = (
             str(body.get("productUrl") or "").strip()
             or str((product or {}).get("productUrl") or "").strip()
@@ -2575,6 +2586,29 @@ async def get_price_matches(request: Request):
                     "matchConfidence": offer.get("matchConfidence") or 100,
                 })
         catalog_offers = _catalog_price_matches(brand, lookup_name, family_name=family_name, limit=12)
+        merged = _merge_price_offers(
+            catalog_offers,
+            stored_offers,
+            brand=brand,
+            name=lookup_name,
+            family_name=family_name,
+            limit=3,
+        )
+        if merged:
+            return _cache_set(cache_key, merged)
+
+        fallback_offer = _catalog_url_fallback_offer(
+            product,
+            brand=brand,
+            name=lookup_name,
+            fallback_url=product_url,
+            fallback_price=request_price,
+            fallback_image=request_image,
+            fallback_id=product_id,
+        )
+        if fallback_offer:
+            return _cache_set(cache_key, [fallback_offer])
+
         live_offers = []
         if LIVE_PRICE_MATCHES_ENABLED:
             try:
@@ -2584,29 +2618,19 @@ async def get_price_matches(request: Request):
                     family_name=family_name,
                     product_url=product_url,
                     limit=12,
+                    allow_network=False,
                 )
             except Exception as exc:
                 print("Live price match lookup failed:", str(exc))
                 live_offers = []
 
         merged = _merge_price_offers(
-            catalog_offers,
-            stored_offers,
             live_offers,
             brand=brand,
             name=lookup_name,
             family_name=family_name,
             limit=3,
         )
-        if not merged:
-            fallback_offer = _catalog_url_fallback_offer(
-                product,
-                brand=brand,
-                name=lookup_name,
-                fallback_url=product_url,
-            )
-            if fallback_offer:
-                merged = [fallback_offer]
         return _cache_set(cache_key, merged)
     except HTTPException:
         raise

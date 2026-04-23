@@ -45,6 +45,9 @@ URL_CHECK_TIMEOUT_SECONDS = int(os.getenv("DUPLY_URL_CHECK_TIMEOUT_SECONDS", "5"
 CACHE_SCHEMA_VERSION = os.getenv("DUPLY_CACHE_SCHEMA_VERSION", "us-retailers-v3").strip() or "us-retailers-v3"
 OFFICIAL_RETAILER_TIMEOUT_SECONDS = int(os.getenv("DUPLY_OFFICIAL_RETAILER_TIMEOUT_SECONDS", "12"))
 OFFICIAL_RETAILER_MAX_WORKERS = int(os.getenv("DUPLY_OFFICIAL_RETAILER_MAX_WORKERS", "2"))
+PRICE_MATCH_MAX_SECONDS = max(0.5, float(os.getenv("DUPLY_PRICE_MATCH_MAX_SECONDS", "3.0")))
+PRICE_MATCH_MAX_PRODUCT_INFO_FETCHES = max(1, int(os.getenv("DUPLY_PRICE_MATCH_MAX_PRODUCT_INFO_FETCHES", "4")))
+PRICE_MATCH_QUERY_RESULT_LIMIT = max(4, int(os.getenv("DUPLY_PRICE_MATCH_QUERY_RESULT_LIMIT", "8")))
 
 DEAD_PAGE_MARKERS = [
     "product not found", "page not found", "404 not found", "error 404",
@@ -486,20 +489,21 @@ def _distinctive_product_tokens(product_name, family_name="", brand=""):
 
 def title_match_confidence(title, brand, product_name):
     text, brand_text = normalize_text(title), normalize_text(brand)
-    if brand_text and brand_text not in text:
-        return 0
+    brand_present = bool(brand_text and brand_text in text)
     tokens = _meaningful_tokens(product_name)
     if not tokens:
-        return 60 if brand_text else 0
+        return 60 if brand_present else 35
     matched = sum(1 for token in tokens[:8] if token in text)
-    return round((matched / min(len(tokens), 8)) * 75 + (25 if brand_text and brand_text in text else 0))
+    score = round((matched / min(len(tokens), 8)) * 80)
+    if brand_present:
+        score = min(100, score + 20)
+    elif brand_text:
+        score = max(0, score - 5)
+    return score
 
 
 def price_offer_match_confidence(title, brand, product_name, family_name=""):
     text = normalize_text(title)
-    brand_text = normalize_text(brand)
-    if brand_text and brand_text not in text:
-        return 0
 
     exact_score = title_match_confidence(title, brand, product_name)
     family_score = 0
@@ -1268,7 +1272,7 @@ def _candidate_direct_offer(candidate, brand, product_name, family_name=""):
     url = str(candidate.get("title-href") or candidate.get("shopping_url") or candidate.get("raw", {}).get("productUrl") or "").strip()
     price = _extract_price(candidate.get("price"))
     confidence = price_offer_match_confidence(title or product_name, brand, product_name, family_name)
-    if not title or not url or price <= 0 or confidence < 45 or not is_live_product_url(url):
+    if not title or not url or price <= 0 or confidence < 45 or not is_supported_price_match_url(url):
         return None
     digest = hashlib.sha1(f"{title}|{url}".encode("utf-8")).hexdigest()[:14]
     return {
@@ -1308,7 +1312,7 @@ def _query_variants(brand, product_name, family_name=""):
     return variants
 
 
-def find_price_matches(brand, product_name, family_name="", product_url="", limit=8):
+def find_price_matches(brand, product_name, family_name="", product_url="", limit=8, allow_network=True):
     if not product_name or not _has_dataforseo_credentials():
         return []
     key = _versioned_key(
@@ -1322,32 +1326,51 @@ def find_price_matches(brand, product_name, family_name="", product_url="", limi
     cached = _load_persistent_cache(_price_match_cache, "price-match", key)
     if cached is not None:
         return cached
+    if not allow_network:
+        return []
     offers, seen = [], set()
     target_offer_pool = max(limit * 2, 18)
-
-    if product_url and is_live_product_url(product_url):
-        direct_digest = hashlib.sha1(f"{brand}|{product_name}|{product_url}".encode("utf-8")).hexdigest()[:14]
-        offers.append({
-            "id": f"offer-{direct_digest}",
-            "retailer": _source_domain(product_url),
-            "title": f"{brand} {product_name}".strip(),
-            "price": 0,
-            "url": product_url,
-            "image": "",
-            "shipping": "",
-            "source": "product-url",
-            "matchConfidence": 100,
-            "rank": 0,
-        })
+    deadline = time.monotonic() + PRICE_MATCH_MAX_SECONDS
+    product_info_fetches = 0
 
     for query in _query_variants(brand, product_name, family_name):
-        for candidate in search_web_products(query, max(limit * 4, 12)):
-            product_info = _fetch_product_info(candidate)
-            merchant_offers = candidate.get("merchantOffers") or candidate.get("raw", {}).get("merchantOffers") or _extract_offers(product_info, candidate.get("product_name"))
+        if time.monotonic() >= deadline:
+            break
+
+        candidates = search_web_products(query, min(max(limit * 2, 6), PRICE_MATCH_QUERY_RESULT_LIMIT))
+        for candidate in candidates:
+            if time.monotonic() >= deadline:
+                break
+
+            direct_offer = _candidate_direct_offer(candidate, brand, product_name, family_name)
+            if direct_offer:
+                dedupe_key = (
+                    normalize_text(direct_offer.get("retailer")),
+                    normalize_text(direct_offer.get("title")),
+                    normalize_text(direct_offer.get("url")),
+                )
+                if dedupe_key not in seen:
+                    seen.add(dedupe_key)
+                    offers.append(direct_offer)
+
+            if len([offer for offer in offers if offer.get("price", 0) > 0]) >= target_offer_pool:
+                break
+
+            if product_info_fetches >= PRICE_MATCH_MAX_PRODUCT_INFO_FETCHES:
+                continue
+
+            base_merchant_offers = candidate.get("merchantOffers") or candidate.get("raw", {}).get("merchantOffers") or []
+            if base_merchant_offers:
+                merchant_offers = base_merchant_offers
+            else:
+                product_info = _fetch_product_info(candidate)
+                product_info_fetches += 1
+                merchant_offers = _extract_offers(product_info, candidate.get("product_name"))
+
             for index, offer in enumerate(merchant_offers):
                 title, url, price = str(offer.get("title") or candidate.get("product_name") or "").strip(), str(offer.get("url") or "").strip(), _extract_price(offer.get("price"))
                 confidence = price_offer_match_confidence(title, brand, product_name, family_name)
-                if not title or not url or price <= 0 or confidence < 45 or not is_live_product_url(url):
+                if not title or not url or price <= 0 or confidence < 45 or not is_supported_price_match_url(url):
                     continue
                 dedupe_key = (normalize_text(offer.get("retailer")), normalize_text(title), normalize_text(url))
                 if dedupe_key in seen:
@@ -1358,13 +1381,6 @@ def find_price_matches(brand, product_name, family_name="", product_url="", limi
                 if len([offer for offer in offers if offer.get("price", 0) > 0]) >= target_offer_pool:
                     break
 
-            direct_offer = _candidate_direct_offer(candidate, brand, product_name, family_name)
-            if direct_offer:
-                dedupe_key = (normalize_text(direct_offer.get("retailer")), normalize_text(direct_offer.get("title")), normalize_text(direct_offer.get("url")))
-                if dedupe_key not in seen:
-                    seen.add(dedupe_key)
-                    offers.append(direct_offer)
-
         if len([offer for offer in offers if offer.get("price", 0) > 0]) >= target_offer_pool:
             break
 
@@ -1373,7 +1389,7 @@ def find_price_matches(brand, product_name, family_name="", product_url="", limi
     for offer in offers:
         title, url, price = str(offer.get("title") or "").strip(), str(offer.get("url") or "").strip(), _extract_price(offer.get("price"))
         confidence = price_offer_match_confidence(title or product_name, brand, product_name, family_name)
-        if not title or not url or confidence < 45 or not is_live_product_url(url):
+        if not title or not url or price <= 0 or confidence < 45 or not is_supported_price_match_url(url):
             continue
         dedupe_key = (normalize_text(offer.get("retailer")), normalize_text(title), normalize_text(url))
         if dedupe_key in final_seen:

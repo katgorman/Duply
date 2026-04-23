@@ -627,13 +627,13 @@ export default function ProductDetailsScreen() {
             <View style={styles.priceMatchBox}>
               <View style={styles.priceMatchHeader}>
                 <View style={styles.priceMatchHeaderText}>
-                  <Text style={styles.priceMatchEyebrow}>Top 3 live retailer offers</Text>
+                  <Text style={styles.priceMatchEyebrow}>Top 3 retailer offers</Text>
                   <Text style={styles.priceMatchTitle} numberOfLines={2}>
                     {visiblePriceOffers[0]
                       ? `$${visiblePriceOffers[0].price.toFixed(2)} at ${visiblePriceOffers[0].retailer}`
                       : priceOffersLoading
-                        ? 'Scanning live retailers'
-                        : 'No live offers found'}
+                        ? 'Checking retailer offers'
+                        : 'No retailer offers found'}
                   </Text>
                 </View>
                 {priceOffersLoading ? (
@@ -653,7 +653,7 @@ export default function ProductDetailsScreen() {
               ) : null}
 
               {!priceOffersLoading && !priceOffersError && visiblePriceOffers.length === 0 ? (
-                <Text style={styles.priceMatchEmpty}>No live shopping links found right now.</Text>
+                <Text style={styles.priceMatchEmpty}>No retailer links found right now.</Text>
               ) : null}
 
               {visiblePriceOffers.slice(0, 3).map((offer, index) => (

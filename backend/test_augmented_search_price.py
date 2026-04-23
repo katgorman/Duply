@@ -56,6 +56,14 @@ class AugmentedSearchPriceTests(unittest.TestCase):
         self.assertGreater(exact_variant, family_only)
         self.assertGreaterEqual(exact_variant, 70)
 
+    def test_price_offer_match_confidence_allows_brandless_titles_when_product_tokens_match(self):
+        confidence = wp.price_offer_match_confidence(
+            "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+            "FENTY BEAUTY by Rihanna",
+            "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+        )
+        self.assertGreaterEqual(confidence, 60)
+
     def test_family_aliases_keep_grouped_variants_searchable(self):
         original_loader = fp._load_metadata_products
         original_db = fp.db
@@ -164,7 +172,7 @@ class AugmentedSearchPriceTests(unittest.TestCase):
             fp.invalidate_catalog_cache()
 
     @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in the current Python environment")
-    def test_price_matches_merge_live_offers_even_when_catalog_exists(self):
+    def test_price_matches_return_catalog_offers_without_blocking_on_live_scan(self):
         class DummyRequest:
             def __init__(self, payload):
                 self.payload = payload
@@ -203,14 +211,85 @@ class AugmentedSearchPriceTests(unittest.TestCase):
             mock.patch.object(backend_main, "_cache_set", side_effect=lambda _key, value: value),
             mock.patch.object(backend_main, "get_firestore_product_by_id", return_value=None),
             mock.patch.object(backend_main, "_catalog_price_matches", return_value=catalog_offer),
-            mock.patch.object(backend_main, "find_price_matches", return_value=live_offer),
+            mock.patch.object(backend_main, "find_price_matches", return_value=live_offer) as live_lookup,
             mock.patch.object(backend_main, "LIVE_PRICE_MATCHES_ENABLED", True),
         ):
             result = asyncio.run(backend_main.get_price_matches(DummyRequest(payload)))
 
         self.assertTrue(result)
-        self.assertEqual(result[0]["price"], 18.0)
-        self.assertEqual(result[0]["retailer"], "ulta")
+        self.assertEqual(result[0]["price"], 24.0)
+        self.assertEqual(result[0]["retailer"], "sephora")
+        live_lookup.assert_not_called()
+
+    @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in the current Python environment")
+    def test_price_matches_fall_back_to_request_product_url_when_catalog_is_missing(self):
+        class DummyRequest:
+            def __init__(self, payload):
+                self.payload = payload
+
+            async def json(self):
+                return self.payload
+
+        payload = {
+            "id": "",
+            "brand": "Glossier",
+            "name": "Cloud Paint Gel Cream Blush",
+            "familyName": "Cloud Paint Gel Cream Blush",
+            "price": 24.0,
+            "image": "https://example.com/cloud-paint.jpg",
+            "productUrl": "https://www.sephora.com/product/cloud-paint-P12345",
+        }
+
+        with (
+            mock.patch.object(backend_main, "_cache_get", return_value=None),
+            mock.patch.object(backend_main, "_cache_set", side_effect=lambda _key, value: value),
+            mock.patch.object(backend_main, "get_firestore_product_by_id", return_value=None),
+            mock.patch.object(backend_main, "_catalog_price_matches", return_value=[]),
+            mock.patch.object(backend_main, "LIVE_PRICE_MATCHES_ENABLED", True),
+            mock.patch.object(backend_main, "find_price_matches", return_value=[]) as live_lookup,
+        ):
+            result = asyncio.run(backend_main.get_price_matches(DummyRequest(payload)))
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["price"], 24.0)
+        self.assertEqual(result[0]["url"], payload["productUrl"])
+        live_lookup.assert_not_called()
+
+    def test_live_price_match_search_avoids_runtime_url_validation_for_supported_urls(self):
+        candidate = {
+            "product_name": "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+            "title": "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+            "price": 21.0,
+            "website": "ulta",
+            "title-href": "https://www.ulta.com/p/gloss-bomb-heat-universal-lip-luminizer-plumper-pimprod2031401?sku=2592391",
+            "merchantOffers": [{
+                "retailer": "ulta",
+                "title": "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+                "price": 21.0,
+                "url": "https://www.ulta.com/p/gloss-bomb-heat-universal-lip-luminizer-plumper-pimprod2031401?sku=2592391",
+                "shipping": "",
+            }],
+            "raw": {},
+        }
+
+        with (
+            mock.patch.object(wp, "_has_dataforseo_credentials", return_value=True),
+            mock.patch.object(wp, "_load_persistent_cache", return_value=None),
+            mock.patch.object(wp, "_save_persistent_cache"),
+            mock.patch.object(wp, "search_web_products", return_value=[candidate]),
+            mock.patch.object(wp, "is_live_product_url", side_effect=AssertionError("should not validate live URLs during request-time scan")),
+        ):
+            offers = wp.find_price_matches(
+                "FENTY BEAUTY by Rihanna",
+                "Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+                family_name="Gloss Bomb Heat Universal Lip Luminizer + Plumper",
+                product_url="https://www.ulta.com/p/gloss-bomb-heat-universal-lip-luminizer-plumper-pimprod2031401?sku=2592391",
+                limit=3,
+            )
+
+        self.assertTrue(offers)
+        self.assertEqual(offers[0]["retailer"], "ulta")
+        self.assertGreater(offers[0]["price"], 0)
 
 
 if __name__ == "__main__":
