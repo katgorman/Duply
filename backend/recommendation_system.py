@@ -18,6 +18,7 @@ _model_status = "uninitialized"
 _model_error = ""
 _model_warmup_started = False
 _model_warmup_lock = Lock()
+_model_load_lock = Lock()
 
 
 def _load_products():
@@ -337,20 +338,33 @@ def _ensure_local_model():
         _model_error = "Local model explicitly disabled"
         return False
 
-    try:
-        import faiss
-        from sentence_transformers import SentenceTransformer
+    with _model_load_lock:
+        if _model_status == "ready":
+            return True
 
-        _model = SentenceTransformer(str(MODEL_DIR))
-        _index = faiss.read_index(str(INDEX_PATH))
-        _model_status = "ready"
-        return True
-    except Exception as exc:
-        _model_status = "failed"
-        _model_error = str(exc)
-        _model = None
-        _index = None
-        return False
+        if _model_status == "failed":
+            return False
+
+        if MODEL_MODE == "disabled":
+            _model_status = "failed"
+            _model_error = "Local model explicitly disabled"
+            return False
+
+        try:
+            import faiss
+            from sentence_transformers import SentenceTransformer
+
+            _model = SentenceTransformer(str(MODEL_DIR))
+            _index = faiss.read_index(str(INDEX_PATH))
+            _model_status = "ready"
+            _model_error = ""
+            return True
+        except Exception as exc:
+            _model_status = "failed"
+            _model_error = str(exc)
+            _model = None
+            _index = None
+            return False
 
 
 def start_model_warmup():
@@ -436,9 +450,14 @@ def find_dupes(query, k=5, search_pool=50, preferred_type=None):
         else:
             target_type = infer_query_type(query)
 
-    if _model_status in {"uninitialized", "warming"}:
-        if _model_status == "uninitialized":
+    if _model_status == "uninitialized":
+        if MODEL_BACKGROUND_WARMUP_ENABLED:
             start_model_warmup()
+            return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
+        if not _ensure_local_model():
+            return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
+
+    if _model_status == "warming":
         return _fallback_find_dupes(query, k=k, preferred_type=preferred_type)
 
     if not _ensure_local_model():

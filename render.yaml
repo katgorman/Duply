@@ -9,6 +9,8 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: DUPLY_WARM_CATALOG_ON_STARTUP
+        value: "true"
       - key: DUPLY_BACKGROUND_MODEL_WARMUP
         value: "true"
       - key: PYTHONUNBUFFERED

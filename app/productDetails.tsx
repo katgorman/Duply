@@ -315,7 +315,7 @@ export default function ProductDetailsScreen() {
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.center}>
-          <Text style={styles.notFound}>Couldn't load product</Text>
+          <Text style={styles.notFound}>Couldn&apos;t load product</Text>
           <Text style={[styles.notFound, { fontSize: 14, fontWeight: '400', marginTop: spacing.sm, color: colors.textMuted }]} numberOfLines={3}>
             {loadError}
           </Text>

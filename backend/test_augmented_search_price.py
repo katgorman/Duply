@@ -115,6 +115,54 @@ class AugmentedSearchPriceTests(unittest.TestCase):
             fp._metadata_products_by_id = original_metadata_products_by_id
             fp.invalidate_catalog_cache()
 
+    def test_search_prefers_products_over_accessories_for_family_queries(self):
+        original_loader = fp._load_metadata_products
+        original_db = fp.db
+        original_metadata_products = fp._metadata_products
+        original_metadata_products_by_id = fp._metadata_products_by_id
+
+        catalog_records = [
+            fp._prepare_catalog_product({
+                "firestore_id": "prod-glossier-cloud-paint-brush",
+                "brand": "Glossier",
+                "product_name": "Cloud Paint Dual-Ended Cheek Blush Brush",
+                "category": "tools",
+                "subcategory": "tools",
+                "type": "tools",
+                "price": 28,
+                "image": "https://example.com/brush.jpg",
+                "raw": {},
+            }),
+            fp._prepare_catalog_product({
+                "firestore_id": "prod-glossier-cloud-paint-blush",
+                "brand": "Glossier",
+                "product_name": "Cloud Paint Gel Cream Blush",
+                "category": "blush",
+                "subcategory": "blush",
+                "type": "blush",
+                "price": 24,
+                "image": "https://example.com/blush.jpg",
+                "raw": {},
+            }),
+        ]
+
+        try:
+            fp.db = None
+            fp._metadata_products = None
+            fp._metadata_products_by_id = None
+            fp._load_metadata_products = lambda: catalog_records
+            fp.invalidate_catalog_cache()
+
+            results = fp.search_firestore_products("glossier cloud paint", limit=5)
+            self.assertTrue(results)
+            self.assertEqual(results[0].get("product_name"), "Cloud Paint Gel Cream Blush")
+        finally:
+            fp._load_metadata_products = original_loader
+            fp.db = original_db
+            fp._metadata_products = original_metadata_products
+            fp._metadata_products_by_id = original_metadata_products_by_id
+            fp.invalidate_catalog_cache()
+
     @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in the current Python environment")
     def test_price_matches_merge_live_offers_even_when_catalog_exists(self):
         class DummyRequest:

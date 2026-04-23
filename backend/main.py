@@ -21,6 +21,7 @@ from firestore_products import (
     delete_firestore_products,
     fetch_firestore_product,
     get_admin_job_state,
+    get_catalog_status,
     get_firestore_status,
     get_firestore_product_by_id,
     invalidate_catalog_cache,
@@ -33,6 +34,7 @@ from firestore_products import (
     _product_bucket,
     PRODUCTS_COLLECTION,
     search_firestore_products,
+    start_catalog_warmup,
     set_admin_job_state,
     upsert_firestore_products,
     warm_catalog_cache,
@@ -56,16 +58,28 @@ from web_products import (
     title_match_confidence,
 )
 
+
+def _env_flag(name, default=False):
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+CATALOG_WARMUP_ON_STARTUP_ENABLED = _env_flag("DUPLY_WARM_CATALOG_ON_STARTUP", default=True)
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     import threading
     from recommendation_system import start_model_warmup
 
     def _bg_warm():
-        try:
-            warm_catalog_cache()
-        except Exception:
-            pass
+        if CATALOG_WARMUP_ON_STARTUP_ENABLED:
+            try:
+                warm_catalog_cache()
+                start_catalog_warmup(refresh_from_firestore=True)
+            except Exception:
+                pass
         try:
             start_model_warmup()
         except Exception:
@@ -120,8 +134,11 @@ _WARMING_RESPONSE = JSONResponse(
 
 
 def _catalog_guard():
-    """Return a 503 response if the catalog isn't loaded yet, else None."""
-    return None if is_catalog_loaded() else _WARMING_RESPONSE
+    """Kick off warmup if needed and return a 503 response until the catalog is ready."""
+    if not is_catalog_loaded():
+        start_catalog_warmup()
+        return _WARMING_RESPONSE
+    return None
 
 
 def _cache_get(key):
@@ -2078,12 +2095,13 @@ def _requested_admin_steps(value, default=ADMIN_JOB_DEFAULT_MAX_STEPS):
 @app.get("/health")
 def health():
     catalog_ready = is_catalog_loaded()
+    catalog_status = get_catalog_status()
     if not catalog_ready:
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "catalogReady": False, "detail": "warming up"},
+            content={"ok": False, "catalogReady": False, **catalog_status, "detail": "warming up"},
         )
-    return {"ok": True, "catalogReady": True, **get_recommendation_status()}
+    return {"ok": True, "catalogReady": True, **catalog_status, **get_recommendation_status()}
 
 
 _ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
@@ -2102,6 +2120,7 @@ def admin_status():
     return {
         "ok": True,
         "timestamp": int(time.time()),
+        "catalog": get_catalog_status(),
         "model": get_recommendation_status(),
         "firestore": firestore_status,
         "dataforseo": dataforseo_status,

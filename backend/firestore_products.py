@@ -5,7 +5,7 @@ import json
 import hashlib
 import re
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from threading import Lock, Thread
 from typing import Iterable
 
 try:
@@ -173,6 +173,10 @@ _catalog_products_by_category = None
 _catalog_search_prefix_index = None
 _catalog_cache_loaded_at = 0.0
 _category_counts_cache = None
+_catalog_status = "uninitialized"
+_catalog_error = ""
+_catalog_load_lock = Lock()
+_catalog_warmup_started = False
 
 
 PRODUCT_TYPE_ALIASES = {
@@ -568,13 +572,16 @@ def build_web_cache_id(cache_kind, cache_key):
 
 
 def invalidate_catalog_cache():
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache, _catalog_status, _catalog_error, _catalog_warmup_started
     _catalog_products = None
     _catalog_products_by_id = None
     _catalog_products_by_category = None
     _catalog_search_prefix_index = None
     _catalog_cache_loaded_at = 0.0
     _category_counts_cache = None
+    _catalog_status = "uninitialized"
+    _catalog_error = ""
+    _catalog_warmup_started = False
     _search_cache.clear()
 
 
@@ -583,10 +590,10 @@ def get_firestore_web_cache(cache_kind, cache_key, max_age_seconds=WEB_CACHE_TTL
         return None
 
     doc = _run_firestore_read(
-        lambda: (
+        lambda timeout: (
             db.collection(WEB_CACHE_COLLECTION)
             .document(build_web_cache_id(cache_kind, cache_key))
-            .get()
+            .get(timeout=timeout)
         ),
         None,
     )
@@ -687,15 +694,15 @@ def _run_firestore_read(callable_obj, default, timeout=None):
         return default
 
     effective_timeout = timeout if timeout is not None else FIRESTORE_READ_TIMEOUT_SECONDS
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(callable_obj)
     try:
-        return future.result(timeout=effective_timeout)
-    except (FutureTimeoutError, Exception):
-        future.cancel()
+        return callable_obj(effective_timeout)
+    except TypeError:
+        try:
+            return callable_obj()
+        except Exception:
+            return default
+    except Exception:
         return default
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _catalog_product_url(product):
@@ -823,7 +830,7 @@ def _query_by_field(field, value, limit=10):
         return []
 
     return _run_firestore_read(
-        lambda: list(db.collection(PRODUCTS_COLLECTION).where(field, "==", value).limit(limit).stream()),
+        lambda timeout: list(db.collection(PRODUCTS_COLLECTION).where(field, "==", value).limit(limit).stream(timeout=timeout)),
         [],
     )
 
@@ -833,13 +840,13 @@ def _prefix_query(field, value, limit=15):
         return []
 
     return _run_firestore_read(
-        lambda: list(
+        lambda timeout: list(
             db.collection(PRODUCTS_COLLECTION)
             .order_by(field)
             .start_at([value])
             .end_at([f"{value}\uf8ff"])
             .limit(limit)
-            .stream()
+            .stream(timeout=timeout)
         ),
         [],
     )
@@ -880,6 +887,28 @@ def _dedupe_docs(docs: Iterable):
         unique.append(doc)
 
     return unique
+
+
+ACCESSORY_SEARCH_TOKENS = {
+    "accessory",
+    "applicator",
+    "bag",
+    "blender",
+    "bottle",
+    "brush",
+    "brushes",
+    "case",
+    "cleaner",
+    "compact",
+    "holder",
+    "kit",
+    "kits",
+    "mirror",
+    "sharpener",
+    "sponge",
+    "tool",
+    "tools",
+}
 
 
 def _product_search_score(product, normalized_query, query_tokens):
@@ -936,6 +965,12 @@ def _product_search_score(product, normalized_query, query_tokens):
 
     if token_matches == len(query_tokens) and token_matches > 0:
         score += 10
+
+    query_token_set = set(query_tokens)
+    name_tokens = set(re.findall(r"[a-z0-9]+", name))
+    accessory_tokens = name_tokens & ACCESSORY_SEARCH_TOKENS
+    if accessory_tokens and not (query_token_set & ACCESSORY_SEARCH_TOKENS):
+        score -= 18 * len(accessory_tokens)
 
     return score
 
@@ -1159,7 +1194,7 @@ def get_firestore_product_by_id(doc_id):
         return catalog_product
 
     doc = _run_firestore_read(
-        lambda: db.collection(PRODUCTS_COLLECTION).document(doc_id).get(),
+        lambda timeout: db.collection(PRODUCTS_COLLECTION).document(doc_id).get(timeout=timeout),
         None,
     )
     if doc is not None and getattr(doc, "exists", False):
@@ -1181,7 +1216,8 @@ def search_firestore_products(query, limit=20):
     query_tokens = [token for token in normalized_query.split() if token]
     products = _indexed_search_candidates(query_tokens)
     if products is None:
-        products = _load_catalog_products()
+        warm_catalog_cache()
+        products = _catalog_products or []
     if not products:
         _search_cache_set(cache_key, [])
         return []
@@ -1211,7 +1247,7 @@ def _category_matches(category_or_type):
     if not normalized_target:
         return []
 
-    _load_catalog_products()
+    warm_catalog_cache()
     return list((_catalog_products_by_category or {}).get(normalized_target, []))
 
 
@@ -1348,7 +1384,11 @@ def _stream_collection_paginated(collection_name, page_size=500, page_timeout=30
         if last_doc is not None:
             query = query.start_after(last_doc)
 
-        page = _run_firestore_read(lambda q=query: list(q.stream()), [], timeout=page_timeout)
+        page = _run_firestore_read(lambda timeout, q=query: list(q.stream(timeout=timeout)), None, timeout=page_timeout)
+        if page is None:
+            if all_docs:
+                raise RuntimeError("Timed out streaming Firestore catalog before pagination completed")
+            break
         if not page:
             break
 
@@ -1360,56 +1400,14 @@ def _stream_collection_paginated(collection_name, page_size=500, page_timeout=30
     return all_docs
 
 
-def _load_catalog_products(force_refresh=False):
+def _store_catalog_products(merged):
     global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at
 
-    cache_is_fresh = (
-        _catalog_products is not None
-        and (
-            CACHE_TTL_SECONDS <= 0
-            or (time.time() - _catalog_cache_loaded_at) <= CACHE_TTL_SECONDS
-        )
-    )
-    if (
-        not force_refresh
-        and cache_is_fresh
-    ):
-        return _catalog_products
-
-    merged = []
     by_id = {}
     by_category = {}
     search_prefix_index = {}
-    seen_identity = set()
-
-    if db is not None:
-        docs = _stream_collection_paginated(
-            PRODUCTS_COLLECTION,
-            page_size=1000,
-            page_timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
-        )
-
-        for doc in docs:
-            normalized = _normalize_catalog_record(doc.to_dict() or {}, doc.id)
-            if not normalized.get("brand") or not normalized.get("product_name"):
-                continue
-            if not _is_searchable_catalog_product(normalized):
-                continue
-            identity = _product_identity_key(normalized)
-            if identity in seen_identity:
-                continue
-            seen_identity.add(identity)
-            merged.append(normalized)
-
-    if not merged:
-        for product in _load_metadata_products():
-            identity = _product_identity_key(product)
-            if identity in seen_identity:
-                continue
-            seen_identity.add(identity)
-            merged.append(product)
-
     family_groups = {}
+
     for product in merged:
         family_groups.setdefault(build_product_family_key(product), []).append(product)
 
@@ -1474,17 +1472,151 @@ def _load_catalog_products(force_refresh=False):
     return _catalog_products
 
 
+def _load_metadata_catalog():
+    global _catalog_status, _catalog_error
+
+    merged = []
+    seen_identity = set()
+    for product in _load_metadata_products():
+        identity = _product_identity_key(product)
+        if identity in seen_identity:
+            continue
+        seen_identity.add(identity)
+        merged.append(product)
+
+    if not merged:
+        raise RuntimeError("No metadata catalog products available")
+
+    result = _store_catalog_products(merged)
+    _catalog_status = "ready"
+    _catalog_error = ""
+    return result
+
+
+def _catalog_cache_is_fresh():
+    return (
+        _catalog_products is not None
+        and (
+            CACHE_TTL_SECONDS <= 0
+            or (time.time() - _catalog_cache_loaded_at) <= CACHE_TTL_SECONDS
+        )
+    )
+
+
+def _load_catalog_products(force_refresh=False):
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _catalog_status, _catalog_error, _catalog_warmup_started
+
+    if not force_refresh and _catalog_cache_is_fresh():
+        return _catalog_products
+
+    with _catalog_load_lock:
+        if not force_refresh and _catalog_cache_is_fresh():
+            return _catalog_products
+
+        had_cached_catalog = _catalog_products is not None
+        _catalog_status = "refreshing" if had_cached_catalog else "warming"
+        _catalog_error = ""
+
+        try:
+            merged = []
+            seen_identity = set()
+
+            if db is not None:
+                docs = _stream_collection_paginated(
+                    PRODUCTS_COLLECTION,
+                    page_size=500,
+                    page_timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
+                )
+
+                for doc in docs:
+                    normalized = _normalize_catalog_record(doc.to_dict() or {}, doc.id)
+                    if not normalized.get("brand") or not normalized.get("product_name"):
+                        continue
+                    if not _is_searchable_catalog_product(normalized):
+                        continue
+                    identity = _product_identity_key(normalized)
+                    if identity in seen_identity:
+                        continue
+                    seen_identity.add(identity)
+                    merged.append(normalized)
+
+            if not merged:
+                return _load_metadata_catalog()
+
+            _store_catalog_products(merged)
+            _catalog_status = "ready"
+            _catalog_error = ""
+            return _catalog_products
+        except Exception as exc:
+            _catalog_error = str(exc)
+            if had_cached_catalog and _catalog_products is not None:
+                _catalog_status = "ready"
+                return _catalog_products
+            try:
+                return _load_metadata_catalog()
+            except Exception:
+                pass
+            _catalog_status = "failed"
+            raise
+        finally:
+            _catalog_warmup_started = False
+
+
 def _catalog_products_by_id_map():
-    _load_catalog_products()
+    if _catalog_products is None:
+        warm_catalog_cache()
     return _catalog_products_by_id or {}
 
 
 def is_catalog_loaded() -> bool:
-    return _catalog_products is not None
+    return _catalog_status in {"ready", "refreshing"} and _catalog_products is not None
+
+
+def get_catalog_status():
+    return {
+        "status": _catalog_status,
+        "loaded": bool(_catalog_products is not None),
+        "error": _catalog_error,
+    }
+
+
+def start_catalog_warmup(refresh_from_firestore=False):
+    global _catalog_status, _catalog_error, _catalog_warmup_started
+
+    if not refresh_from_firestore and _catalog_cache_is_fresh():
+        return False
+
+    with _catalog_load_lock:
+        if not refresh_from_firestore and _catalog_cache_is_fresh():
+            return False
+        if _catalog_warmup_started:
+            return False
+        _catalog_warmup_started = True
+        _catalog_status = "refreshing" if _catalog_products is not None else "warming"
+        _catalog_error = ""
+
+    def _worker():
+        try:
+            if _catalog_products is None:
+                _load_metadata_catalog()
+            if refresh_from_firestore and db is not None:
+                _load_catalog_products(force_refresh=True)
+        except Exception:
+            pass
+        finally:
+            global _catalog_warmup_started
+            _catalog_warmup_started = False
+
+    Thread(target=_worker, daemon=True).start()
+    return True
 
 
 def warm_catalog_cache():
-    _load_catalog_products()
+    if _catalog_products is None:
+        try:
+            _load_metadata_catalog()
+        except Exception:
+            _load_catalog_products()
     category_counts()
 
 
@@ -1584,7 +1716,7 @@ def list_firestore_product_documents():
         return []
 
     return _run_firestore_read(
-        lambda: list(db.collection(PRODUCTS_COLLECTION).stream()),
+        lambda timeout: list(db.collection(PRODUCTS_COLLECTION).stream(timeout=timeout)),
         [],
     )
 
