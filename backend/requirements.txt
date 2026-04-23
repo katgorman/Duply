@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+gunicorn
 faiss-cpu
 numpy
 sentence-transformers

@@ -154,7 +154,7 @@ CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_CACHE_TTL_SECONDS", "21600"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_SEARCH_CACHE_TTL_SECONDS", "300"))
 WEB_CACHE_TTL_SECONDS = int(os.getenv("FIRESTORE_WEB_CACHE_TTL_SECONDS", "604800"))
 FIRESTORE_READ_TIMEOUT_SECONDS = max(1.0, float(os.getenv("FIRESTORE_READ_TIMEOUT_SECONDS", "2.5")))
-FIRESTORE_CATALOG_TIMEOUT_SECONDS = max(5.0, float(os.getenv("FIRESTORE_CATALOG_TIMEOUT_SECONDS", "20.0")))
+FIRESTORE_CATALOG_TIMEOUT_SECONDS = max(5.0, float(os.getenv("FIRESTORE_CATALOG_TIMEOUT_SECONDS", "30.0")))
 _search_cache = {}
 METADATA_PATH = BASE_DIR / "cosmetics_metadata.json"
 NON_US_COUNTRY_TLDS = {
@@ -1385,7 +1385,7 @@ def _load_catalog_products(force_refresh=False):
     if db is not None:
         docs = _stream_collection_paginated(
             PRODUCTS_COLLECTION,
-            page_size=500,
+            page_size=1000,
             page_timeout=FIRESTORE_CATALOG_TIMEOUT_SECONDS,
         )
 
@@ -1477,6 +1477,10 @@ def _load_catalog_products(force_refresh=False):
 def _catalog_products_by_id_map():
     _load_catalog_products()
     return _catalog_products_by_id or {}
+
+
+def is_catalog_loaded() -> bool:
+    return _catalog_products is not None
 
 
 def warm_catalog_cache():

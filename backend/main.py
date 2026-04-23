@@ -10,7 +10,7 @@ from threading import Lock
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -24,6 +24,7 @@ from firestore_products import (
     get_firestore_status,
     get_firestore_product_by_id,
     invalidate_catalog_cache,
+    is_catalog_loaded,
     list_firestore_product_documents,
     list_products_by_category,
     normalize_catalog_price,
@@ -58,12 +59,35 @@ from web_products import (
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     import threading
+    from recommendation_system import start_model_warmup
+
     def _bg_warm():
         try:
             warm_catalog_cache()
         except Exception:
             pass
+        try:
+            start_model_warmup()
+        except Exception:
+            pass
+
     threading.Thread(target=_bg_warm, daemon=True).start()
+
+    # Keep-alive: ping /health every 4 min so Render never idles the process.
+    # Uses RENDER_EXTERNAL_URL when deployed; skips in local dev.
+    _self_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if _self_url:
+        def _keep_alive():
+            from urllib.request import urlopen
+            import urllib.error
+            while True:
+                time.sleep(240)
+                try:
+                    urlopen(f"{_self_url}/health", timeout=10)
+                except Exception:
+                    pass
+        threading.Thread(target=_keep_alive, daemon=True).start()
+
     yield
 
 
@@ -86,6 +110,18 @@ LIVE_PRICE_MATCHES_ENABLED = os.getenv("DUPLY_ENABLE_LIVE_PRICE_MATCHES", "").st
 _response_cache = {}
 _active_admin_job_ids = set()
 _active_admin_job_ids_lock = Lock()
+
+
+_WARMING_RESPONSE = JSONResponse(
+    status_code=503,
+    content={"detail": "Server is warming up, please retry in a few seconds."},
+    headers={"Retry-After": "5"},
+)
+
+
+def _catalog_guard():
+    """Return a 503 response if the catalog isn't loaded yet, else None."""
+    return None if is_catalog_loaded() else _WARMING_RESPONSE
 
 
 def _cache_get(key):
@@ -2041,7 +2077,7 @@ def _requested_admin_steps(value, default=ADMIN_JOB_DEFAULT_MAX_STEPS):
 
 @app.get("/health")
 def health():
-    return {"ok": True, **get_recommendation_status()}
+    return {"ok": True, "catalogReady": is_catalog_loaded(), **get_recommendation_status()}
 
 
 _ADMIN_HTML_PATH = Path(__file__).resolve().parent / "admin.html"
@@ -2322,6 +2358,9 @@ async def recat_catalog(request: Request):
 
 @app.get("/products/search")
 def search_products(q: str, limit: int = 8):
+    guard = _catalog_guard()
+    if guard:
+        return guard
     normalized_query = _normalize_text(q)
     normalized_limit = max(1, min(limit, 24))
     cache_key = ("search", normalized_query, normalized_limit)
@@ -2341,6 +2380,9 @@ def search_products(q: str, limit: int = 8):
 
 @app.get("/products/search-page")
 def search_products_page(q: str, page: int = 1, page_size: int = 24, sort: str = "popular"):
+    guard = _catalog_guard()
+    if guard:
+        return guard
     normalized_query = _normalize_text(q)
     normalized_page = max(page, 1)
     normalized_page_size = max(1, min(page_size, 96))
@@ -2565,6 +2607,9 @@ def get_product(product_id: str):
 
 @app.post("/dupes")
 async def get_dupes(request: Request):
+    guard = _catalog_guard()
+    if guard:
+        return guard
     try:
         body = await request.json()
 
