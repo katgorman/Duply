@@ -270,6 +270,11 @@ def _official_retailer_from_url(url):
     return ""
 
 
+def _is_google_shopping_redirect_url(url):
+    lowered = _normalized_url(url).lower()
+    return "google.com/search" in lowered and "ibp=oshop" in lowered
+
+
 def _official_source(data):
     source = normalize_text(data.get("sourceProvider") or data.get("source"))
     return source if source in OFFICIAL_US_RETAILERS else ""
@@ -676,6 +681,7 @@ def sync_official_catalog(
     cleaned_non_official = 0
     official_offers_removed = 0
     images_refreshed = 0
+    badRedirectDocsDeleted = 0
 
     for doc in docs:
         scanned += 1
@@ -687,8 +693,15 @@ def sync_official_catalog(
             )
         source = _official_source(data)
         primary_url = _primary_product_url(data)
+        merchant_offers = data.get("merchantOffers") or _raw_data(data).get("merchantOffers") or []
+        official_offers = [offer for offer in merchant_offers if _official_offer(offer)]
 
-        has_official_offer = any(_official_offer(offer) for offer in (data.get("merchantOffers") or _raw_data(data).get("merchantOffers") or []))
+        has_official_offer = bool(official_offers)
+        if not source and _is_google_shopping_redirect_url(primary_url) and not has_official_offer:
+            delete_ids.append(doc.id)
+            badRedirectDocsDeleted += 1
+            continue
+
         if not source and not _official_retailer_from_url(primary_url) and not has_official_offer:
             continue
 
@@ -698,6 +711,18 @@ def sync_official_catalog(
             if _official_url_is_live(primary_url, live_url_sets):
                 if before_image:
                     continue
+                parsed_primary = _parse_live_official_product(primary_url, live_url_sets, parsed_cache)
+                if parsed_primary:
+                    replacement_id = parsed_primary.get("firestore_id") or doc.id
+                    upserts[replacement_id] = parsed_primary
+                    official_source_refreshed += 1
+                    if replacement_id != doc.id:
+                        delete_ids.append(doc.id)
+                        official_source_deleted += 1
+                    if _clean_image(parsed_primary.get("image") or "") and _clean_image(parsed_primary.get("image") or "") != before_image:
+                        images_refreshed += 1
+                    continue
+
                 refreshed_image = _find_source_page_image(primary_url) or _dfs_image_for_product(_product_brand(data), _product_name(data))
                 if not refreshed_image:
                     continue
@@ -755,6 +780,7 @@ def sync_official_catalog(
             "nonOfficialDocsCleaned": cleaned_non_official,
             "officialOffersRemoved": official_offers_removed,
             "imagesRefreshed": images_refreshed,
+            "badRedirectDocsDeleted": badRedirectDocsDeleted,
         },
         "cache": cache_result,
         "dryRun": bool(dry_run),
