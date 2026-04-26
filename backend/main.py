@@ -2788,6 +2788,12 @@ async def get_dupes(request: Request):
                 continue
             if _is_same_product_family_variant(original_firestore or original, firestore_record or dupe_source):
                 continue
+            if (
+                _normalize_text(dupe.get("brand")) == _normalize_text(original.get("brand"))
+                and _normalize_text(dupe.get("name")) == _normalize_text(original.get("name"))
+                and _normalize_text(dupe.get("brand"))
+            ):
+                continue
             savings = max(original["price"] - dupe["price"], 0)
             similarity = _compute_match_percentage(
                 original_firestore or original,
@@ -2812,6 +2818,11 @@ async def get_dupes(request: Request):
         output = [
             item for item in output
             if _product_identity_key(item["original"]) != _product_identity_key(item["dupe"])
+            and not (
+                _normalize_text(item["original"].get("brand")) == _normalize_text(item["dupe"].get("brand"))
+                and _normalize_text(item["original"].get("name")) == _normalize_text(item["dupe"].get("name"))
+                and _normalize_text(item["original"].get("brand"))
+            )
         ]
         deduped_output = []
         seen_output = set()

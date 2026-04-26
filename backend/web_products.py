@@ -137,6 +137,12 @@ OFFICIAL_US_RETAILERS = {
         "productUrlPattern": r"^https://www\.ulta\.com/p/[^?#]+(?:\?sku=\d+)?$",
         "siteSuffixes": ["| Ulta Beauty", " | Ulta Beauty", "- Ulta Beauty"],
     },
+    "amazon": {
+        "displayName": "Amazon",
+        "sitemaps": [],
+        "productUrlPattern": r"^https://(?:www\.)?amazon\.com/(?:[^/]+/)?dp/[A-Z0-9]{10}(?:[/?#].*)?$",
+        "siteSuffixes": ["| Amazon", " | Amazon", "- Amazon", "- Amazon.com"],
+    },
 }
 
 
