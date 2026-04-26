@@ -33,8 +33,7 @@ export default function AboutScreen() {
           </View>
           <Text style={styles.version}>Version 1.0.0</Text>
           <Text style={styles.description}>
-            Search products from your product catalog, open rich product pages, compare model-ranked dupes with
-            explainable match scores, and scan live price-match offers.
+            Search the product catalog, open product pages, compare dupes, and check live retailer prices.
           </Text>
         </View>
 
@@ -52,7 +51,7 @@ export default function AboutScreen() {
           <View style={styles.divider} />
           <InfoRow
             title="Dupe Matching"
-            body="The backend ranks likely dupes, filters out same-product shade variants, and explains each match using real overlapping product data."
+            body="We compare products by type, category, price, and rating to find the closest matches and rank them."
           />
           <View style={styles.divider} />
           <InfoRow

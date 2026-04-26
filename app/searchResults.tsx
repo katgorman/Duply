@@ -28,18 +28,18 @@ const DUPE_STAGE_ORDER: DupeStage[] = ['resolving', 'matching', 'finalizing'];
 const DUPE_STAGE_COPY: Record<DupeStage, { badge: string; title: string; description: string }> = {
   resolving: {
     badge: 'Loading source',
-    title: 'Pulling in the source product',
-    description: 'Locating the product in our catalog so the match engine starts from the right baseline. This usually takes 5–15 seconds.',
+    title: 'Looking up your product',
+    description: 'Finding your product in the catalog. This usually takes 5–15 seconds.',
   },
   matching: {
-    badge: 'Running AI match',
-    title: 'Comparing the full catalog',
-    description: 'Our AI model is scoring thousands of products against the source — formula, category, price, and rating all factor in. Hang tight.',
+    badge: 'Finding dupes',
+    title: 'Searching the catalog',
+    description: 'Comparing products by type, category, price, and rating. Hang tight.',
   },
   finalizing: {
-    badge: 'Finalizing list',
-    title: 'Ranking the shortlist',
-    description: 'Sorting the strongest matches to the top and filtering out near-identical variants. Almost there.',
+    badge: 'Sorting results',
+    title: 'Sorting the results',
+    description: 'Sorting the best matches to the top. Almost there.',
   },
 };
 
@@ -132,7 +132,7 @@ function DupeLoader({
 
       <View style={styles.loadingTimingNote}>
         <Text style={styles.loadingTimingNoteText}>
-          Dupe matching runs a real AI model — first results typically arrive in 5–15 seconds.
+          Results usually take 5–15 seconds.
         </Text>
       </View>
 
