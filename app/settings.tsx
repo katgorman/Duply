@@ -19,7 +19,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { recentSearches, recentViews, clearRecentSearches, clearRecentViews } = useActivity();
   const { favorites, clearFavorites } = useFavorites();
-  const { showHigherPricedMatches, setShowHigherPricedMatches } = usePreferences();
+  const { showHigherPricedMatches, setShowHigherPricedMatches, excludeSameBrandDupes, setExcludeSameBrandDupes } = usePreferences();
   const [successMessage, setSuccessMessage] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
@@ -79,6 +79,22 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionLabel}>Matching</Text>
         <View style={styles.card}>
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleLeft}>
+              <Search width={20} height={20} stroke={colors.textMuted} />
+              <View style={styles.textBlock}>
+                <Text style={styles.toggleLabel}>Hide same-brand dupes</Text>
+                <Text style={styles.toggleHelp}>Only show dupes from other brands. Turn off to include products from the same brand as your search.</Text>
+              </View>
+            </View>
+            <Switch
+              value={excludeSameBrandDupes}
+              onValueChange={setExcludeSameBrandDupes}
+              trackColor={{ false: colors.border, true: colors.accentLight }}
+              thumbColor={excludeSameBrandDupes ? colors.primary : colors.textMuted}
+            />
+          </View>
+          <View style={styles.divider} />
           <View style={styles.toggleRow}>
             <View style={styles.toggleLeft}>
               <Search width={20} height={20} stroke={colors.textMuted} />

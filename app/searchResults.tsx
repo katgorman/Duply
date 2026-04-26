@@ -43,12 +43,12 @@ const DUPE_STAGE_COPY: Record<DupeStage, { badge: string; title: string; descrip
   },
 };
 
-function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean) {
-  return items.filter(item => (
-    showHigherPricedMatches
-      ? true
-      : item.dupe.price <= item.original.price
-  ));
+function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean, excludeSameBrandDupes: boolean) {
+  return items.filter(item => {
+    if (!showHigherPricedMatches && item.dupe.price > item.original.price) return false;
+    if (excludeSameBrandDupes && item.dupe.brand.trim().toLowerCase() === item.original.brand.trim().toLowerCase()) return false;
+    return true;
+  });
 }
 
 function DupeLoader({
@@ -166,8 +166,8 @@ export default function SearchResultsScreen() {
   const params = useLocalSearchParams<{ q?: string; productId?: string; productName?: string }>();
   const cachedSourceProduct = params.productId ? getCachedProductById(params.productId) : null;
   const cachedDupes = getCachedDupesForProduct(cachedSourceProduct);
-  const { showHigherPricedMatches } = usePreferences();
-  const initialCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches);
+  const { showHigherPricedMatches, excludeSameBrandDupes } = usePreferences();
+  const initialCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches, excludeSameBrandDupes);
 
   const [dupes, setDupes] = useState<Dupe[]>(initialCachedDupes);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -211,13 +211,13 @@ export default function SearchResultsScreen() {
       setDupeStage('matching');
       const foundDupes = await dataService.findDupes(product);
       setDupeStage('finalizing');
-      setDupes(filterVisibleDupes(foundDupes, showHigherPricedMatches));
+      setDupes(filterVisibleDupes(foundDupes, showHigherPricedMatches, excludeSameBrandDupes));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [cachedSourceProduct, params.productId, params.q, showHigherPricedMatches]);
+  }, [cachedSourceProduct, params.productId, params.q, showHigherPricedMatches, excludeSameBrandDupes]);
 
   useEffect(() => {
     loadDupes();
@@ -226,7 +226,7 @@ export default function SearchResultsScreen() {
   useEffect(() => {
     if (cachedSourceProduct) {
       setSourceProduct(prev => prev || cachedSourceProduct);
-      const nextCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches);
+      const nextCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches, excludeSameBrandDupes);
       if (nextCachedDupes.length) {
         setDupes(nextCachedDupes);
       } else {

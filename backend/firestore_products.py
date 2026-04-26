@@ -460,10 +460,9 @@ def build_product_family_name(product):
 
 def build_product_family_key(product):
     brand = _normalize_family_token(_record_brand(product))
-    category = _normalize_family_token(_record_category(product))
     product_type = _normalize_family_token(_record_product_type(product))
     family_name = _normalize_family_token(build_product_family_name(product))
-    return "|".join([brand, category, product_type, family_name])
+    return "|".join([brand, product_type, family_name])
 
 
 def extract_product_variant_label(product, family_name=None):
