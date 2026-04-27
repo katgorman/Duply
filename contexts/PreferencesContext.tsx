@@ -4,25 +4,21 @@ import React, { createContext, useCallback, useEffect, useState } from 'react';
 const STORAGE_KEY = '@duply_preferences';
 
 type PreferencesState = {
-  showHigherPricedMatches: boolean;
   excludeSameBrandDupes: boolean;
 };
 
 export interface PreferencesContextValue extends PreferencesState {
   loaded: boolean;
-  setShowHigherPricedMatches: (value: boolean) => void;
   setExcludeSameBrandDupes: (value: boolean) => void;
 }
 
 const DEFAULT_PREFERENCES: PreferencesState = {
-  showHigherPricedMatches: false,
   excludeSameBrandDupes: true,
 };
 
 export const PreferencesContext = createContext<PreferencesContextValue>({
   ...DEFAULT_PREFERENCES,
   loaded: false,
-  setShowHigherPricedMatches: () => {},
   setExcludeSameBrandDupes: () => {},
 });
 
@@ -48,7 +44,6 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 
         const parsed = JSON.parse(json) as Partial<PreferencesState>;
         setPreferences({
-          showHigherPricedMatches: Boolean(parsed.showHigherPricedMatches),
           excludeSameBrandDupes: parsed.excludeSameBrandDupes !== undefined
             ? Boolean(parsed.excludeSameBrandDupes)
             : DEFAULT_PREFERENCES.excludeSameBrandDupes,
@@ -60,14 +55,6 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       }
     })();
   }, []);
-
-  const setShowHigherPricedMatches = useCallback((value: boolean) => {
-    setPreferences(prev => {
-      const nextState = { ...prev, showHigherPricedMatches: value };
-      void persist(nextState);
-      return nextState;
-    });
-  }, [persist]);
 
   const setExcludeSameBrandDupes = useCallback((value: boolean) => {
     setPreferences(prev => {
@@ -82,7 +69,6 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       value={{
         ...preferences,
         loaded,
-        setShowHigherPricedMatches,
         setExcludeSameBrandDupes,
       }}
     >
