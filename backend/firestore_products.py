@@ -1540,8 +1540,9 @@ def _stream_collection_paginated(collection_name, page_size=500, page_timeout=30
 
 
 def _store_catalog_products(merged):
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache
 
+    _category_counts_cache = None
     by_id = {}
     by_category = {}
     by_category_seen = {}
