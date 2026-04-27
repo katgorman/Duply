@@ -28,6 +28,7 @@ import {
   dataService,
   getCachedPriceMatchesForProduct,
   getCachedProductById,
+  prefetchDupesForProduct,
   prefetchPriceMatchesForProduct,
   prefetchProductById,
   prefetchProductsById,
@@ -429,6 +430,19 @@ export default function ProductDetailsScreen() {
     }
   };
 
+  const handleGetDupes = () => {
+    if (!original) return;
+    seedProductCache(original);
+    prefetchDupesForProduct(original);
+    router.push({
+      pathname: '/searchResults',
+      params: {
+        productId: original.id,
+        productName: original.familyName || original.name,
+      },
+    });
+  };
+
   const openOffer = (offer: PriceOffer) => {
     if (isSupportedPriceMatchUrl(offer.url)) {
       Linking.openURL(offer.url);
@@ -549,6 +563,21 @@ export default function ProductDetailsScreen() {
               </View>
             ) : null}
             <Text style={styles.heroPrice}>${displayPrice.toFixed(2)}</Text>
+          </Animated.View>
+        )}
+
+        {!isComparisonView && (
+          <Animated.View entering={FadeInDown.delay(110).duration(400)} style={styles.getDupesWrap}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Find dupes for this product"
+              activeOpacity={0.85}
+              onPress={handleGetDupes}
+              style={styles.getDupesBtn}
+            >
+              <Feather name="search" size={18} color={colors.textOnPrimary} />
+              <Text style={styles.getDupesText}>Get Dupes</Text>
+            </TouchableOpacity>
           </Animated.View>
         )}
 
@@ -978,6 +1007,31 @@ const styles = StyleSheet.create({
     ...typography.bodyBold,
     color: colors.primary,
     marginTop: spacing.sm,
+  },
+  getDupesWrap: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    alignItems: 'center',
+  },
+  getDupesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    minWidth: 200,
+    ...shadows.sm,
+  },
+  getDupesText: {
+    ...typography.bodyBold,
+    color: colors.textOnPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   variantSummaryPill: {
     marginTop: spacing.md,
