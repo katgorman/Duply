@@ -500,6 +500,24 @@ export async function getCategoriesFromBackend(): Promise<Category[]> {
   return fetchJsonWithCache<Category[]>(url, undefined, 'categories', CACHE_TTL_MS.categories);
 }
 
+export async function getFeaturedHighEntropyDupesFromBackend(): Promise<Dupe[]> {
+  return fetchJsonWithCache<Dupe[]>(
+    `${BASE_URL}/featured/high-entropy-dupes`,
+    undefined,
+    'featured:high-entropy-dupes',
+    10 * 60_000,
+  );
+}
+
+export async function getFeaturedGiftsUnder15FromBackend(): Promise<Product[]> {
+  return fetchJsonWithCache<Product[]>(
+    `${BASE_URL}/featured/gifts-under-15`,
+    undefined,
+    'featured:gifts-under-15',
+    10 * 60_000,
+  );
+}
+
 export async function getProductsByCategoryFromBackend(
   category: string,
   options: { page?: number; pageSize?: number; query?: string; sort?: string } = {},

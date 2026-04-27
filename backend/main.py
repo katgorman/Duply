@@ -2556,6 +2556,106 @@ def get_categories():
     ])
 
 
+@app.get("/featured/high-entropy-dupes")
+def get_high_entropy_dupes():
+    guard = _catalog_guard()
+    if guard:
+        return guard
+    cache_key = ("featured_high_entropy_dupes",)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    products_by_type: dict[str, list] = {}
+    for cat in ["face", "lips", "eyes", "skincare", "nails"]:
+        for raw in list_products_by_category(cat, limit=100, page=1, sort_by="popular").get("items", []):
+            product = _coerce_to_search_product(raw, fallback={"id": raw.get("firestore_id", "")})
+            if not product or not product.get("image") or not product.get("price"):
+                continue
+            pt = _normalize_text(product.get("productType") or "")
+            products_by_type.setdefault(pt, []).append(product)
+
+    results = []
+    seen_originals: set = set()
+    seen_dupes: set = set()
+
+    for products in products_by_type.values():
+        expensive = sorted(
+            [p for p in products if p["price"] >= 25 and (p.get("rating") or 0) >= 3.5],
+            key=lambda p: -(p.get("rating") or 0),
+        )[:10]
+        cheap = [p for p in products if 5 <= p["price"] <= 15]
+
+        for original in expensive:
+            orig_family = original.get("variantGroupId") or original["id"]
+            if orig_family in seen_originals:
+                continue
+            best_pair = None
+            best_score = 0.0
+            for candidate in cheap:
+                cand_family = candidate.get("variantGroupId") or candidate["id"]
+                if cand_family == orig_family or cand_family in seen_dupes:
+                    continue
+                savings_pct = (original["price"] - candidate["price"]) / original["price"]
+                if savings_pct < 0.4:
+                    continue
+                match = _compute_match_percentage(original, candidate)
+                if match < 60:
+                    continue
+                score = match * savings_pct
+                if score > best_score:
+                    best_score = score
+                    best_pair = {
+                        "id": f"entropy-{original['id']}-{candidate['id']}",
+                        "original": original,
+                        "dupe": candidate,
+                        "similarity": round(match, 1),
+                        "savings": round(original["price"] - candidate["price"], 2),
+                    }
+            if best_pair:
+                seen_originals.add(orig_family)
+                seen_dupes.add(best_pair["dupe"].get("variantGroupId") or best_pair["dupe"]["id"])
+                results.append(best_pair)
+
+    results.sort(key=lambda r: -r["savings"])
+    return _cache_set(cache_key, results[:8])
+
+
+@app.get("/featured/gifts-under-15")
+def get_gifts_under_15():
+    guard = _catalog_guard()
+    if guard:
+        return guard
+    cache_key = ("featured_gifts_under_15",)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    products = []
+    seen_families: set = set()
+
+    for cat in ["lips", "face", "eyes", "skincare", "nails"]:
+        for raw in list_products_by_category(cat, limit=100, page=1, sort_by="popular").get("items", []):
+            product = _coerce_to_search_product(raw, fallback={"id": raw.get("firestore_id", "")})
+            if not product:
+                continue
+            price = product.get("price") or 0
+            if price < 5 or price > 15:
+                continue
+            if not product.get("image"):
+                continue
+            if (product.get("rating") or 0) < 3.8:
+                continue
+            family = product.get("variantGroupId") or product["id"]
+            if family in seen_families:
+                continue
+            seen_families.add(family)
+            products.append(product)
+
+    products.sort(key=lambda p: (-(p.get("rating") or 0), -(p.get("numberOfReviews") or 0)))
+    return _cache_set(cache_key, products[:12])
+
+
 def _legacy_category_products(category_or_type: str):
     result = list_products_by_category(category_or_type, limit=24, page=1)
     available_items = []
