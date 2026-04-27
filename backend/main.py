@@ -445,12 +445,9 @@ def _explicit_family_name_tokens(name: str, brand: str = ""):
     if not normalized_name:
         return ()
 
-    normalized_name = re.sub(
-        r"\((?:[^)]*?(?:shade|color|colour|hue|tone)[^)]*?)\)",
-        "",
-        normalized_name,
-        flags=re.IGNORECASE,
-    )
+    # Strip all parenthesized content — in cosmetics these are almost always
+    # shade names (HOT CHERRY), variant labels (INTENSE), or size callouts.
+    normalized_name = re.sub(r"\([^)]*\)", "", normalized_name)
     normalized_name = re.sub(
         r"\s+(?:in\s+)?(?:shade|color|colour|hue|tone)s?\s+.+$",
         "",
@@ -459,7 +456,7 @@ def _explicit_family_name_tokens(name: str, brand: str = ""):
     )
     normalized_name = re.sub(r"\s[-:|/]\s.+$", "", normalized_name)
 
-    return tuple(_brandless_name_tokens(normalized_name, brand))
+    return tuple(_brandless_name_tokens(normalized_name.strip(), brand))
 
 
 def _is_same_product_family_variant(original_source, dupe_source):
@@ -489,16 +486,30 @@ def _is_same_product_family_variant(original_source, dupe_source):
     if (
         explicit_original_family
         and explicit_original_family == explicit_dupe_family
-        and explicit_original_family != tuple(original_tokens)
-        and explicit_dupe_family != tuple(dupe_tokens)
+        and (
+            explicit_original_family != tuple(original_tokens)
+            or explicit_dupe_family != tuple(dupe_tokens)
+        )
     ):
         return True
+
+    if len(original_tokens) < 3 or len(dupe_tokens) < 3:
+        return False
 
     shared_prefix = _shared_prefix_length(original_tokens, dupe_tokens)
     min_length = min(len(original_tokens), len(dupe_tokens))
     original_suffix = original_tokens[shared_prefix:]
     dupe_suffix = dupe_tokens[shared_prefix:]
+
     if not original_suffix or not dupe_suffix:
+        # One name is a prefix of the other — treat as same variant when the
+        # extra tokens are just size/quantity qualifiers (e.g. "3ml", "travel")
+        _size_tokens = {"ml", "oz", "g", "mg", "fl", "mini", "travel", "size", "full", "pack", "set"}
+        surplus = original_suffix or dupe_suffix
+        if shared_prefix >= 3 and all(
+            re.match(r"^\d", t) or t in _size_tokens for t in surplus
+        ):
+            return True
         return False
 
     if shared_prefix < max(3, min_length - 2):
