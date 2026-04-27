@@ -51,6 +51,7 @@ from web_products import (
     _infer_product_type,
     is_approved_retailer_url,
     is_live_product_url,
+    OFFICIAL_US_RETAILERS,
     price_offer_match_confidence,
     price_offer_sort_key,
     is_supported_price_match_url,
@@ -1275,11 +1276,28 @@ def _search_products_with_fallback(q: str, local_limit: int, web_limit: int, max
 
 
 def _offer_identity_key(offer):
+    retailer_key = offer.get("retailer") or ""
+    for key, config in OFFICIAL_US_RETAILERS.items():
+        if retailer_key.strip().lower() in {key, config["displayName"].lower()}:
+            retailer_key = key
+            break
     return (
-        _normalize_text(offer.get("retailer")),
+        _normalize_text(retailer_key),
         _normalize_text(offer.get("title")),
         _normalize_text(offer.get("url")),
     )
+
+
+def _retailer_display_name(raw: str) -> str:
+    if not raw:
+        return raw
+    key = raw.strip().lower()
+    if key in OFFICIAL_US_RETAILERS:
+        return OFFICIAL_US_RETAILERS[key]["displayName"]
+    for config in OFFICIAL_US_RETAILERS.values():
+        if config["displayName"].lower() == key:
+            return config["displayName"]
+    return raw
 
 
 def _normalize_price_offer(offer, brand="", name="", family_name="", check_live_url=True):
@@ -1294,7 +1312,7 @@ def _normalize_price_offer(offer, brand="", name="", family_name="", check_live_
         return None
     return {
         "id": offer.get("id") or f"offer-{abs(hash((title, url))) % 10**12}",
-        "retailer": offer.get("retailer") or "",
+        "retailer": _retailer_display_name(offer.get("retailer") or ""),
         "title": title,
         "price": price,
         "url": url,
