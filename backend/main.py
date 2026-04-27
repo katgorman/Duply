@@ -16,6 +16,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from firestore_products import (
     build_catalog_dedupe_key,
+    CATEGORY_BUCKETS,
     category_counts,
     db as _fs_db,
     delete_firestore_products,
@@ -571,16 +572,16 @@ _MATCH_WEIGHTED_FIELDS = [
     ("product_size", 5),
 ]
 
-_TOOL_PRODUCT_TYPES = {
-    "brush", "brushes", "brush set", "makeup brush", "face brush",
-    "eye brush", "lip brush", "applicator", "blender", "sponge",
-    "tool", "tools", "accessory", "accessories",
+# Reverse map: normalized product type → bucket name
+_TYPE_TO_BUCKET: dict[str, str] = {
+    normalize_product_type(pt): bucket
+    for bucket, types in CATEGORY_BUCKETS.items()
+    for pt in types
 }
 
 
-def _is_tool_type(product_type: str) -> bool:
-    pt = _normalize_text(product_type or "")
-    return pt in _TOOL_PRODUCT_TYPES or any(t in pt for t in ("brush", "applicator", "blender", "sponge"))
+def _type_bucket(product_type: str) -> str:
+    return _TYPE_TO_BUCKET.get(_normalize_text(product_type or ""), "other")
 
 
 def _compute_match_percentage(original_source, dupe_source):
@@ -590,11 +591,17 @@ def _compute_match_percentage(original_source, dupe_source):
     if _is_same_product_family_variant(original_source, dupe_source):
         return 0.0
 
-    # Refuse to match tools/brushes against actual makeup products
-    orig_is_tool = _is_tool_type(original.get("product_type", ""))
-    dupe_is_tool = _is_tool_type(dupe.get("product_type", ""))
-    if orig_is_tool != dupe_is_tool:
-        return 0.0
+    # Only allow dupes within the same category bucket.
+    # "other" products require an exact product-type match.
+    orig_pt = _normalize_text(original.get("product_type") or "")
+    dupe_pt = _normalize_text(dupe.get("product_type") or "")
+    if orig_pt and dupe_pt:
+        orig_bucket = _type_bucket(orig_pt)
+        dupe_bucket = _type_bucket(dupe_pt)
+        if orig_bucket != dupe_bucket:
+            return 0.0
+        if orig_bucket == "other" and orig_pt != dupe_pt:
+            return 0.0
 
     score = 0.0
     max_score = 0.0
