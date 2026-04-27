@@ -2315,7 +2315,12 @@ def admin_clear_bad_images(batch_size: int = 500):
 def admin_debug_categories():
     import firestore_products as _fp_module
     by_cat = _fp_module._catalog_products_by_category or {}
+    computed_counts = category_counts()
     return {
+        "raw_by_cat_nails": len(by_cat.get("nails", [])),
+        "raw_by_cat_nail_polish": len(by_cat.get("nail_polish", [])),
+        "category_counts_result": computed_counts,
+        "category_counts_cache": _fp_module._category_counts_cache,
         "keys": sorted(by_cat.keys()),
         "counts": {k: len(v) for k, v in sorted(by_cat.items(), key=lambda x: -len(x[1]))},
     }
