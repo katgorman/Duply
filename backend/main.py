@@ -558,6 +558,31 @@ def _rating_similarity_score(original_rating, dupe_rating, max_points):
     return round(max(0, 1 - (diff / 5)) * max_points, 2)
 
 
+_MATCH_TOTAL_POSSIBLE = 95  # sum of all attribute field weights below
+_MATCH_WEIGHTED_FIELDS = [
+    ("product_type", 35),
+    ("category", 15),
+    ("main_ingredient", 10),
+    ("skin_type", 10),
+    ("packaging_type", 5),
+    ("gender_target", 5),
+    ("cruelty_free", 5),
+    ("country", 5),
+    ("product_size", 5),
+]
+
+_TOOL_PRODUCT_TYPES = {
+    "brush", "brushes", "brush set", "makeup brush", "face brush",
+    "eye brush", "lip brush", "applicator", "blender", "sponge",
+    "tool", "tools", "accessory", "accessories",
+}
+
+
+def _is_tool_type(product_type: str) -> bool:
+    pt = _normalize_text(product_type or "")
+    return pt in _TOOL_PRODUCT_TYPES or any(t in pt for t in ("brush", "applicator", "blender", "sponge"))
+
+
 def _compute_match_percentage(original_source, dupe_source):
     original = _build_comparison_profile(original_source)
     dupe = _build_comparison_profile(dupe_source)
@@ -565,39 +590,38 @@ def _compute_match_percentage(original_source, dupe_source):
     if _is_same_product_family_variant(original_source, dupe_source):
         return 0.0
 
+    # Refuse to match tools/brushes against actual makeup products
+    orig_is_tool = _is_tool_type(original.get("product_type", ""))
+    dupe_is_tool = _is_tool_type(dupe.get("product_type", ""))
+    if orig_is_tool != dupe_is_tool:
+        return 0.0
+
     score = 0.0
     max_score = 0.0
+    total_possible = _MATCH_TOTAL_POSSIBLE
 
-    weighted_fields = [
-        ("product_type", 35),
-        ("category", 15),
-        ("main_ingredient", 10),
-        ("skin_type", 10),
-        ("packaging_type", 5),
-        ("gender_target", 5),
-        ("cruelty_free", 5),
-        ("country", 5),
-        ("product_size", 5),
-    ]
-
-    for field, weight in weighted_fields:
+    for field, weight in _MATCH_WEIGHTED_FIELDS:
         original_value = _normalize_text(original.get(field))
         dupe_value = _normalize_text(dupe.get(field))
         if not original_value or not dupe_value:
             continue
-
         max_score += weight
         if original_value == dupe_value:
             score += weight
 
     if original["rating"] > 0 and dupe["rating"] > 0:
         max_score += 10
+        total_possible += 10
         score += _rating_similarity_score(original["rating"], dupe["rating"], 10)
 
     if max_score == 0:
         return 0.0
 
-    percent = round((score / max_score) * 100, 1)
+    # Blend actual coverage with total possible so sparse data can't inflate the score.
+    # Missing fields contribute half their weight to the denominator, capping how high
+    # a low-coverage match can score (e.g. only product_type shared → ~54%, not 100%).
+    blended_denominator = max_score + (total_possible - max_score) * 0.5
+    percent = round((score / blended_denominator) * 100, 1)
     return max(0.0, min(percent, 100.0))
 
 
@@ -2554,106 +2578,6 @@ def get_categories():
         {**category, "count": counts.get(category["productType"], 0)}
         for category in category_meta
     ])
-
-
-@app.get("/featured/high-entropy-dupes")
-def get_high_entropy_dupes():
-    guard = _catalog_guard()
-    if guard:
-        return guard
-    cache_key = ("featured_high_entropy_dupes",)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    products_by_type: dict[str, list] = {}
-    for cat in ["face", "lips", "eyes", "skincare", "nails"]:
-        for raw in list_products_by_category(cat, limit=100, page=1, sort_by="popular").get("items", []):
-            product = _coerce_to_search_product(raw, fallback={"id": raw.get("firestore_id", "")})
-            if not product or not product.get("image") or not product.get("price"):
-                continue
-            pt = _normalize_text(product.get("productType") or "")
-            products_by_type.setdefault(pt, []).append(product)
-
-    results = []
-    seen_originals: set = set()
-    seen_dupes: set = set()
-
-    for products in products_by_type.values():
-        expensive = sorted(
-            [p for p in products if p["price"] >= 25 and (p.get("rating") or 0) >= 3.5],
-            key=lambda p: -(p.get("rating") or 0),
-        )[:10]
-        cheap = [p for p in products if 5 <= p["price"] <= 15]
-
-        for original in expensive:
-            orig_family = original.get("variantGroupId") or original["id"]
-            if orig_family in seen_originals:
-                continue
-            best_pair = None
-            best_score = 0.0
-            for candidate in cheap:
-                cand_family = candidate.get("variantGroupId") or candidate["id"]
-                if cand_family == orig_family or cand_family in seen_dupes:
-                    continue
-                savings_pct = (original["price"] - candidate["price"]) / original["price"]
-                if savings_pct < 0.4:
-                    continue
-                match = _compute_match_percentage(original, candidate)
-                if match < 60:
-                    continue
-                score = match * savings_pct
-                if score > best_score:
-                    best_score = score
-                    best_pair = {
-                        "id": f"entropy-{original['id']}-{candidate['id']}",
-                        "original": original,
-                        "dupe": candidate,
-                        "similarity": round(match, 1),
-                        "savings": round(original["price"] - candidate["price"], 2),
-                    }
-            if best_pair:
-                seen_originals.add(orig_family)
-                seen_dupes.add(best_pair["dupe"].get("variantGroupId") or best_pair["dupe"]["id"])
-                results.append(best_pair)
-
-    results.sort(key=lambda r: -r["savings"])
-    return _cache_set(cache_key, results[:8])
-
-
-@app.get("/featured/gifts-under-15")
-def get_gifts_under_15():
-    guard = _catalog_guard()
-    if guard:
-        return guard
-    cache_key = ("featured_gifts_under_15",)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    products = []
-    seen_families: set = set()
-
-    for cat in ["lips", "face", "eyes", "skincare", "nails"]:
-        for raw in list_products_by_category(cat, limit=100, page=1, sort_by="popular").get("items", []):
-            product = _coerce_to_search_product(raw, fallback={"id": raw.get("firestore_id", "")})
-            if not product:
-                continue
-            price = product.get("price") or 0
-            if price < 5 or price > 15:
-                continue
-            if not product.get("image"):
-                continue
-            if (product.get("rating") or 0) < 3.8:
-                continue
-            family = product.get("variantGroupId") or product["id"]
-            if family in seen_families:
-                continue
-            seen_families.add(family)
-            products.append(product)
-
-    products.sort(key=lambda p: (-(p.get("rating") or 0), -(p.get("numberOfReviews") or 0)))
-    return _cache_set(cache_key, products[:12])
 
 
 def _legacy_category_products(category_or_type: str):

@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,8 +8,7 @@ import { Skeleton } from '../../components/SkeletonLoader';
 import { colors, radius, shadows, spacing, typography } from '../../constants/theme';
 import { useCategories } from '../../hooks/useProducts';
 import { prefetchCategoryPage } from '../../services/api';
-import type { Category, Dupe, Product } from '../../services/api';
-import { getFeaturedGiftsUnder15FromBackend, getFeaturedHighEntropyDupesFromBackend } from '../../services/backendApi';
+import type { Category } from '../../services/api';
 
 const FALLBACK_CATEGORIES: Category[] = [
   { id: 'face', name: 'Face', emoji: '', productType: 'face', color: '#F7C6D9' },
@@ -87,79 +86,11 @@ function CategoryTile({
   );
 }
 
-function HighEntropyDupeCard({ item, onPress }: { item: Dupe; onPress: () => void }) {
-  const savingsPct = item.original.price > 0
-    ? Math.round(((item.original.price - item.dupe.price) / item.original.price) * 100)
-    : 0;
-
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.entropyCard, pressed && styles.cardPressed]}>
-      <View style={styles.entropySavingsBadge}>
-        <Text style={styles.entropySavingsText}>Save {savingsPct}%</Text>
-      </View>
-
-      <View style={styles.entropyRow}>
-        <View style={styles.entropyProductSide}>
-          {item.original.image ? (
-            <Image source={{ uri: item.original.image }} style={styles.entropyImage} contentFit="cover" />
-          ) : (
-            <View style={[styles.entropyImage, styles.entropyImagePlaceholder]} />
-          )}
-          <Text style={styles.entropyBrand} numberOfLines={1}>{item.original.brand}</Text>
-          <Text style={styles.entropyName} numberOfLines={2}>{item.original.name}</Text>
-          <Text style={styles.entropyPrice}>${item.original.price.toFixed(2)}</Text>
-        </View>
-
-        <View style={styles.entropyArrowCol}>
-          <Text style={styles.entropyArrow}>→</Text>
-          <Text style={styles.entropyMatchChip}>{item.similarity}%</Text>
-        </View>
-
-        <View style={styles.entropyProductSide}>
-          {item.dupe.image ? (
-            <Image source={{ uri: item.dupe.image }} style={styles.entropyImage} contentFit="cover" />
-          ) : (
-            <View style={[styles.entropyImage, styles.entropyImagePlaceholder]} />
-          )}
-          <Text style={styles.entropyBrand} numberOfLines={1}>{item.dupe.brand}</Text>
-          <Text style={styles.entropyName} numberOfLines={2}>{item.dupe.name}</Text>
-          <Text style={[styles.entropyPrice, styles.entropyDupePrice]}>${item.dupe.price.toFixed(2)}</Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function GiftCard({ product, onPress }: { product: Product; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.giftCard, pressed && styles.cardPressed]}>
-      {product.image ? (
-        <Image source={{ uri: product.image }} style={styles.giftImage} contentFit="cover" />
-      ) : (
-        <View style={[styles.giftImage, styles.giftImagePlaceholder]} />
-      )}
-      <View style={styles.giftInfo}>
-        <Text style={styles.giftBrand} numberOfLines={1}>{product.brand}</Text>
-        <Text style={styles.giftName} numberOfLines={2}>{product.name}</Text>
-        <Text style={styles.giftPrice}>${product.price.toFixed(2)}</Text>
-        {product.rating > 0 ? (
-          <Text style={styles.giftRating}>★ {product.rating.toFixed(1)}</Text>
-        ) : null}
-      </View>
-    </Pressable>
-  );
-}
-
 export default function CategoriesScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const compactCategoryLayout = width < 760;
   const { data, loading: categoriesLoading } = useCategories();
-
-  const [entropyDupes, setEntropyDupes] = useState<Dupe[]>([]);
-  const [entropyLoading, setEntropyLoading] = useState(true);
-  const [gifts, setGifts] = useState<Product[]>([]);
-  const [giftsLoading, setGiftsLoading] = useState(true);
 
   const categories = data?.length ? data : FALLBACK_CATEGORIES;
 
@@ -169,40 +100,11 @@ export default function CategoriesScreen() {
     });
   }, [categories]);
 
-  useEffect(() => {
-    getFeaturedHighEntropyDupesFromBackend()
-      .then(setEntropyDupes)
-      .catch(() => {})
-      .finally(() => setEntropyLoading(false));
-    getFeaturedGiftsUnder15FromBackend()
-      .then(setGifts)
-      .catch(() => {})
-      .finally(() => setGiftsLoading(false));
-  }, []);
-
   const openCategory = (category: string, title: string) => {
     void prefetchCategoryPage(category, { page: 1, pageSize: 10, sort: 'popular' });
     router.push({
       pathname: '/categoryProducts',
       params: { category, title },
-    });
-  };
-
-  const openProduct = (product: Product) => {
-    router.push({
-      pathname: '/productDetails',
-      params: { id: product.id },
-    });
-  };
-
-  const openDupeSearch = (product: Product) => {
-    router.push({
-      pathname: '/searchResults',
-      params: {
-        productId: product.id,
-        productName: product.name,
-        productBrand: product.brand,
-      },
     });
   };
 
@@ -235,62 +137,6 @@ export default function CategoriesScreen() {
                   onPress={() => openCategory(category.productType, category.name)}
                 />
               ))}
-            </View>
-          </Animated.View>
-
-          {/* High Entropy Dupes */}
-          <Animated.View entering={FadeInDown.duration(400).delay(80)}>
-            <View style={styles.featuredHeader}>
-              <Text style={styles.featuredTitle}>High Value Dupes</Text>
-              <Text style={styles.featuredSubtitle}>High-end products with significantly cheaper matches</Text>
-            </View>
-            <View style={styles.featuredBlock}>
-              {entropyLoading ? (
-                <View style={styles.featuredLoadingRow}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.featuredLoadingText}>Finding dupes...</Text>
-                </View>
-              ) : entropyDupes.length === 0 ? (
-                <Text style={styles.featuredEmpty}>No high-value dupes found right now.</Text>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
-                  {entropyDupes.map(item => (
-                    <HighEntropyDupeCard
-                      key={item.id}
-                      item={item}
-                      onPress={() => openDupeSearch(item.original)}
-                    />
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-          </Animated.View>
-
-          {/* Gifts Under $15 */}
-          <Animated.View entering={FadeInDown.duration(400).delay(160)}>
-            <View style={styles.featuredHeader}>
-              <Text style={styles.featuredTitle}>Gifts Under $15</Text>
-              <Text style={styles.featuredSubtitle}>Top-rated picks that make great gifts</Text>
-            </View>
-            <View style={styles.featuredBlock}>
-              {giftsLoading ? (
-                <View style={styles.featuredLoadingRow}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.featuredLoadingText}>Loading gifts...</Text>
-                </View>
-              ) : gifts.length === 0 ? (
-                <Text style={styles.featuredEmpty}>No gift picks found right now.</Text>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
-                  {gifts.map(product => (
-                    <GiftCard
-                      key={product.id}
-                      product={product}
-                      onPress={() => openProduct(product)}
-                    />
-                  ))}
-                </ScrollView>
-              )}
             </View>
           </Animated.View>
         </ScrollView>
@@ -495,169 +341,5 @@ const styles = StyleSheet.create({
   },
   categoryCountCompact: {
     fontSize: 15,
-  },
-
-  // Featured section shared
-  featuredHeader: {
-    paddingHorizontal: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  featuredTitle: {
-    ...typography.h3,
-    color: colors.primary,
-    textTransform: 'uppercase',
-  },
-  featuredSubtitle: {
-    ...typography.small,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  featuredBlock: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    overflow: 'hidden',
-    minHeight: 80,
-    ...shadows.sm,
-  },
-  featuredLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    padding: spacing.xl,
-  },
-  featuredLoadingText: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  featuredEmpty: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    padding: spacing.xl,
-  },
-  hScroll: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    gap: spacing.md,
-  },
-
-  // High Entropy Dupe card
-  entropyCard: {
-    width: 280,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  entropySavingsBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primary,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  entropySavingsText: {
-    ...typography.smallBold,
-    color: colors.textOnPrimary,
-  },
-  entropyRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  entropyProductSide: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
-  },
-  entropyImage: {
-    width: 80,
-    height: 80,
-    borderRadius: radius.md,
-    backgroundColor: colors.pink,
-  },
-  entropyImagePlaceholder: {
-    backgroundColor: colors.skeleton,
-  },
-  entropyBrand: {
-    ...typography.smallBold,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  entropyName: {
-    ...typography.small,
-    color: colors.text,
-    textAlign: 'center',
-  },
-  entropyPrice: {
-    ...typography.captionBold,
-    color: colors.textSecondary,
-  },
-  entropyDupePrice: {
-    color: colors.primaryLight,
-  },
-  entropyArrowCol: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: spacing.xl,
-    gap: spacing.xs,
-  },
-  entropyArrow: {
-    fontSize: 20,
-    color: colors.primary,
-    fontWeight: '800',
-  },
-  entropyMatchChip: {
-    ...typography.smallBold,
-    color: colors.primaryLight,
-    backgroundColor: colors.accentLight,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    overflow: 'hidden',
-  },
-
-  // Gift card
-  giftCard: {
-    width: 148,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  giftImage: {
-    width: '100%',
-    height: 148,
-    backgroundColor: colors.pink,
-  },
-  giftImagePlaceholder: {
-    backgroundColor: colors.skeleton,
-  },
-  giftInfo: {
-    padding: spacing.sm,
-    gap: 3,
-  },
-  giftBrand: {
-    ...typography.smallBold,
-    color: colors.textSecondary,
-  },
-  giftName: {
-    ...typography.small,
-    color: colors.text,
-  },
-  giftPrice: {
-    ...typography.captionBold,
-    color: colors.primary,
-    marginTop: 2,
-  },
-  giftRating: {
-    ...typography.small,
-    color: colors.primaryLight,
   },
 });
