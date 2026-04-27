@@ -79,7 +79,7 @@ async def _lifespan(app: FastAPI):
         if CATALOG_WARMUP_ON_STARTUP_ENABLED:
             try:
                 warm_catalog_cache()
-                start_catalog_warmup(refresh_from_firestore=True)
+                start_catalog_warmup(refresh_from_firestore=True, on_refresh=_clear_response_cache)
             except Exception:
                 pass
         try:

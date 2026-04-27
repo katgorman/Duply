@@ -1727,7 +1727,7 @@ def get_catalog_status():
     }
 
 
-def start_catalog_warmup(refresh_from_firestore=False):
+def start_catalog_warmup(refresh_from_firestore=False, on_refresh=None):
     global _catalog_status, _catalog_error, _catalog_warmup_started
 
     if not refresh_from_firestore and _catalog_cache_is_fresh():
@@ -1748,6 +1748,11 @@ def start_catalog_warmup(refresh_from_firestore=False):
                 _load_metadata_catalog()
             if refresh_from_firestore and db is not None:
                 _load_catalog_products(force_refresh=True)
+                if on_refresh:
+                    try:
+                        on_refresh()
+                    except Exception:
+                        pass
         except Exception:
             pass
         finally:
