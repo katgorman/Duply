@@ -230,6 +230,32 @@ def _normalize_text(value):
     return str(value).strip().lower()
 
 
+_PRESERVED_CAPS = {"SPF", "BB", "CC", "HD", "UV", "AHA", "BHA", "DNA", "NYC"}
+
+def _normalize_display_name(name: str, brand: str) -> str:
+    if not name:
+        return name
+    name = name.strip()
+    # Strip brand prefix (case-insensitive) when the name starts with "Brand Name"
+    if brand:
+        prefix = brand.strip()
+        if name.lower().startswith(prefix.lower()):
+            trimmed = name[len(prefix):].lstrip(" -–—")
+            if trimmed:
+                name = trimmed
+    # Title-case only if the name is ALL CAPS (more than 2 chars to avoid abbreviations)
+    if len(name) > 2 and name == name.upper() and any(c.isalpha() for c in name):
+        words = name.split()
+        result = []
+        for word in words:
+            if word in _PRESERVED_CAPS or word.rstrip("!?,.:") in _PRESERVED_CAPS:
+                result.append(word)
+            else:
+                result.append(word.capitalize())
+        name = " ".join(result)
+    return name
+
+
 VARIANT_STOP_WORDS = {
     "shade",
     "shades",
@@ -626,7 +652,7 @@ def _product_from_record(record, fallback=None, enrich_image=False):
 
     explicit_id = record.get("firestore_id") or fallback.get("id", "")
     brand = record.get("brand") or fallback.get("brand", "")
-    name = record.get("product_name") or fallback.get("name", "")
+    name = _normalize_display_name(record.get("product_name") or fallback.get("name", ""), brand)
     category = record.get("category") or fallback.get("category", "") or ""
     product_type = normalize_product_type(
         record.get("type") or record.get("subcategory") or fallback.get("productType", "") or category

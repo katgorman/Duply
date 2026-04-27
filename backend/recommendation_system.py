@@ -9,7 +9,7 @@ MODEL_DIR = BASE_DIR / "cosmetics_dupe_model"
 INDEX_PATH = BASE_DIR / "cosmetics_index.faiss"
 
 MODEL_MODE = os.getenv("DUPLY_MODEL_MODE", "auto").strip().lower()
-MODEL_BACKGROUND_WARMUP_ENABLED = os.getenv("DUPLY_BACKGROUND_MODEL_WARMUP", "").strip().lower() in {"1", "true", "yes", "on"}
+MODEL_BACKGROUND_WARMUP_ENABLED = os.getenv("DUPLY_BACKGROUND_MODEL_WARMUP", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 _products = None
 _model = None

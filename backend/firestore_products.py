@@ -1404,6 +1404,7 @@ def _store_catalog_products(merged):
 
     by_id = {}
     by_category = {}
+    by_category_seen = {}
     search_prefix_index = {}
     family_groups = {}
 
@@ -1453,9 +1454,15 @@ def _store_catalog_products(merged):
         product_type = representative.get("_searchType") or normalize_product_type(representative.get("subcategory") or representative.get("type"))
         category = normalize_product_type(representative.get("category"))
 
+        brand_token = _normalize_family_token(_record_brand(representative))
+        family_token = _normalize_family_token(family_name)
+        family_dedup_key = (brand_token, family_token)
         for key in {bucket, product_type, category}:
             if not key:
                 continue
+            if family_dedup_key in by_category_seen.get(key, set()):
+                continue
+            by_category_seen.setdefault(key, set()).add(family_dedup_key)
             by_category.setdefault(key, []).append(representative)
 
         if representative_id:
