@@ -2311,6 +2311,16 @@ def admin_clear_bad_images(batch_size: int = 500):
         return {"error": str(exc)}
 
 
+@app.get("/admin/debug/categories")
+def admin_debug_categories():
+    import firestore_products as _fp_module
+    by_cat = _fp_module._catalog_products_by_category or {}
+    return {
+        "keys": sorted(by_cat.keys()),
+        "counts": {k: len(v) for k, v in sorted(by_cat.items(), key=lambda x: -len(x[1]))},
+    }
+
+
 @app.get("/admin/debug/search")
 def admin_debug_search(q: str = "glossier"):
     import firestore_products as _fp_module
