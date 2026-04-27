@@ -589,10 +589,6 @@ def _compute_match_percentage(original_source, dupe_source):
         if original_value == dupe_value:
             score += weight
 
-    if original["price"] > 0 and dupe["price"] > 0:
-        max_score += 10
-        score += _price_similarity_score(original["price"], dupe["price"], 10)
-
     if original["rating"] > 0 and dupe["rating"] > 0:
         max_score += 10
         score += _rating_similarity_score(original["rating"], dupe["rating"], 10)
@@ -2860,9 +2856,9 @@ async def get_dupes(request: Request):
         deduped_output.sort(
             key=lambda item: (
                 -item["similarity"],
-                -(item.get("qualityScore") or 0),
                 item["savings"] <= 0,
                 -item["savings"],
+                -(item.get("qualityScore") or 0),
                 not bool(item["dupe"].get("image")),
                 item["dupe"]["price"] <= 0,
                 item["dupe"]["price"],
