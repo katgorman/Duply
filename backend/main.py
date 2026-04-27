@@ -416,6 +416,27 @@ SHADE_MARKER_TOKENS = {
     "shade", "shades", "color", "colors", "colour", "colours", "hue", "tone",
 }
 
+_BRAND_BY_SUFFIX_RE = re.compile(r'\s+(?:by|for|from)\s+.+$', re.IGNORECASE)
+
+
+def _canonical_brand(brand: str) -> str:
+    """Normalize brand for family comparison: strips 'by/for/from <name>' suffixes."""
+    b = _normalize_text(brand)
+    return _BRAND_BY_SUFFIX_RE.sub('', b).strip()
+
+
+def _brands_are_same_family(brand_a: str, brand_b: str) -> bool:
+    """True if two brand strings refer to the same brand family."""
+    a = _canonical_brand(brand_a)
+    b = _canonical_brand(brand_b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    # Handle "MAC" vs "MAC Cosmetics" — shorter is word-boundary prefix of longer
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return len(shorter) >= 3 and longer.startswith(shorter + " ")
+
 
 def _normalized_word_tokens(value):
     return re.findall(r"[a-z0-9]+", _normalize_text(value))
@@ -465,7 +486,7 @@ def _is_same_product_family_variant(original_source, dupe_source):
 
     original_brand = _normalize_text(original.get("brand"))
     dupe_brand = _normalize_text(dupe.get("brand"))
-    if not original_brand or original_brand != dupe_brand:
+    if not original_brand or not _brands_are_same_family(original_brand, dupe_brand):
         return False
 
     original_type = normalize_product_type(original.get("product_type") or original.get("category"))
@@ -2804,7 +2825,16 @@ async def get_dupes(request: Request):
                 original_raw.get("current_price"),
                 price,
             )
-            original_record = {**original_firestore, "price": original_price}
+            _GENERIC_TYPES = {"general", "other", ""}
+            fs_type = (original_firestore.get("productType") or "").strip()
+            fs_cat = (original_firestore.get("category") or "").strip()
+            original_record = {
+                **original_firestore,
+                "price": original_price,
+                # Prefer request-supplied type/category when Firestore has none
+                "productType": fs_type if fs_type not in _GENERIC_TYPES else (product_type or fs_type),
+                "category": fs_cat if fs_cat not in _GENERIC_TYPES else (category or fs_cat),
+            }
             original = _product_from_record(
                 original_record,
                 fallback={
