@@ -19,7 +19,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { recentSearches, recentViews, clearRecentSearches, clearRecentViews } = useActivity();
   const { favorites, clearFavorites } = useFavorites();
-  const { excludeSameBrandDupes, setExcludeSameBrandDupes } = usePreferences();
+  const { showHigherPricedMatches, setShowHigherPricedMatches, excludeSameBrandDupes, setExcludeSameBrandDupes } = usePreferences();
   const [successMessage, setSuccessMessage] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
@@ -92,6 +92,22 @@ export default function SettingsScreen() {
               onValueChange={setExcludeSameBrandDupes}
               trackColor={{ false: colors.border, true: colors.accentLight }}
               thumbColor={excludeSameBrandDupes ? colors.primary : colors.textMuted}
+            />
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleLeft}>
+              <Search width={20} height={20} stroke={colors.textMuted} />
+              <View style={styles.textBlock}>
+                <Text style={styles.toggleLabel}>Show matches at higher price points than the original query</Text>
+                <Text style={styles.toggleHelp}>Turn this on to include strong matches even when they cost more.</Text>
+              </View>
+            </View>
+            <Switch
+              value={showHigherPricedMatches}
+              onValueChange={setShowHigherPricedMatches}
+              trackColor={{ false: colors.border, true: colors.accentLight }}
+              thumbColor={showHigherPricedMatches ? colors.primary : colors.textMuted}
             />
           </View>
         </View>

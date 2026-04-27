@@ -47,8 +47,9 @@ function _normalizeBrandForComparison(brand: string): string {
   return brand.trim().toLowerCase().replace(/\s+(?:by|for|from)\s+.+$/i, '');
 }
 
-function filterVisibleDupes(items: Dupe[], excludeSameBrandDupes: boolean) {
+function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean, excludeSameBrandDupes: boolean) {
   return items.filter(item => {
+    if (!showHigherPricedMatches && item.dupe.price > item.original.price) return false;
     if (excludeSameBrandDupes && _normalizeBrandForComparison(item.dupe.brand) === _normalizeBrandForComparison(item.original.brand)) return false;
     return true;
   });
@@ -169,8 +170,8 @@ export default function SearchResultsScreen() {
   const params = useLocalSearchParams<{ q?: string; productId?: string; productName?: string }>();
   const cachedSourceProduct = params.productId ? getCachedProductById(params.productId) : null;
   const cachedDupes = getCachedDupesForProduct(cachedSourceProduct);
-  const { excludeSameBrandDupes } = usePreferences();
-  const initialCachedDupes = filterVisibleDupes(cachedDupes || [], excludeSameBrandDupes);
+  const { showHigherPricedMatches, excludeSameBrandDupes } = usePreferences();
+  const initialCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches, excludeSameBrandDupes);
 
   const [dupes, setDupes] = useState<Dupe[]>(initialCachedDupes);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -214,13 +215,13 @@ export default function SearchResultsScreen() {
       setDupeStage('matching');
       const foundDupes = await dataService.findDupes(product);
       setDupeStage('finalizing');
-      setDupes(filterVisibleDupes(foundDupes, excludeSameBrandDupes));
+      setDupes(filterVisibleDupes(foundDupes, showHigherPricedMatches, excludeSameBrandDupes));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [cachedSourceProduct, params.productId, params.q, excludeSameBrandDupes]);
+  }, [cachedSourceProduct, params.productId, params.q, showHigherPricedMatches, excludeSameBrandDupes]);
 
   useEffect(() => {
     loadDupes();
@@ -229,7 +230,7 @@ export default function SearchResultsScreen() {
   useEffect(() => {
     if (cachedSourceProduct) {
       setSourceProduct(prev => prev || cachedSourceProduct);
-      const nextCachedDupes = filterVisibleDupes(cachedDupes || [], excludeSameBrandDupes);
+      const nextCachedDupes = filterVisibleDupes(cachedDupes || [], showHigherPricedMatches, excludeSameBrandDupes);
       if (nextCachedDupes.length) {
         setDupes(nextCachedDupes);
       } else {
@@ -237,7 +238,7 @@ export default function SearchResultsScreen() {
         prefetchDupesForProduct(cachedSourceProduct);
       }
     }
-  }, [cachedDupes, cachedSourceProduct, excludeSameBrandDupes]);
+  }, [cachedDupes, cachedSourceProduct, showHigherPricedMatches]);
 
   useEffect(() => {
     if (sourceProduct) {
@@ -379,7 +380,9 @@ export default function SearchResultsScreen() {
                 {sourceProduct.productType} - ${sourceProduct.price.toFixed(2)}
               </Text>
               <Text style={styles.sourceSummaryBody}>
-                Showing all ranked matches, sorted by similarity and savings.
+                {showHigherPricedMatches
+                  ? 'Showing all ranked matches, including premium alternatives.'
+                  : 'Showing dupes priced at or below the source product by default.'}
               </Text>
             </View>
           </View>
@@ -426,7 +429,9 @@ export default function SearchResultsScreen() {
         <View style={styles.centerMessage}>
           <Text style={styles.emptyTitle}>No dupes found</Text>
           <Text style={styles.emptySubtitle}>
-            Try another product name, brand, or category search.
+            {showHigherPricedMatches
+              ? 'Try another product name, brand, or category search.'
+              : 'No cheaper alternatives found. Try enabling "Show Higher Priced Matches" in Settings to see all ranked results.'}
           </Text>
         </View>
       ) : (
