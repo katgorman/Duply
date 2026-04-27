@@ -616,7 +616,7 @@ def _type_bucket(product_type: str) -> str:
     return _TYPE_TO_BUCKET.get(_normalize_text(product_type or ""), "other")
 
 
-def _compute_match_percentage(original_source, dupe_source):
+def _compute_match_percentage(original_source, dupe_source, model_score=None):
     original = _build_comparison_profile(original_source)
     dupe = _build_comparison_profile(dupe_source)
 
@@ -654,6 +654,9 @@ def _compute_match_percentage(original_source, dupe_source):
         score += _rating_similarity_score(original["rating"], dupe["rating"], 10)
 
     if max_score == 0:
+        if model_score is not None:
+            ms = min(100.0, model_score) if model_score > 1.0 else model_score * 100.0
+            return max(0.0, min(100.0, round(ms, 1)))
         return 0.0
 
     # Blend actual coverage with total possible so sparse data can't inflate the score.
@@ -661,6 +664,17 @@ def _compute_match_percentage(original_source, dupe_source):
     # a low-coverage match can score (e.g. only product_type shared → ~54%, not 100%).
     blended_denominator = max_score + (total_possible - max_score) * 0.5
     percent = round((score / blended_denominator) * 100, 1)
+
+    if model_score is not None:
+        # Normalize model_score: fallback scores are 35–100, FAISS/keyword are 0–1
+        ms = min(100.0, model_score) if model_score > 1.0 else model_score * 100.0
+        # When attribute coverage is low, lean more on the model's similarity signal.
+        # coverage 0 → model_weight 0.8; coverage 0.5 → model_weight 0.4; coverage 1.0 → 0
+        coverage = max_score / total_possible
+        model_weight = max(0.0, 0.8 * (1.0 - coverage))
+        blended = (1.0 - model_weight) * percent + model_weight * ms
+        return max(0.0, min(100.0, round(blended, 1)))
+
     return max(0.0, min(percent, 100.0))
 
 
@@ -2924,6 +2938,7 @@ async def get_dupes(request: Request):
             similarity = _compute_match_percentage(
                 original_firestore or original,
                 firestore_record or dupe_source,
+                model_score=item.get("score"),
             )
             match_reason = _build_match_reason(
                 original_firestore or original,

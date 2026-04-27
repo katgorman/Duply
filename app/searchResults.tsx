@@ -43,10 +43,14 @@ const DUPE_STAGE_COPY: Record<DupeStage, { badge: string; title: string; descrip
   },
 };
 
+function _normalizeBrandForComparison(brand: string): string {
+  return brand.trim().toLowerCase().replace(/\s+(?:by|for|from)\s+.+$/i, '');
+}
+
 function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean, excludeSameBrandDupes: boolean) {
   return items.filter(item => {
     if (!showHigherPricedMatches && item.dupe.price > item.original.price) return false;
-    if (excludeSameBrandDupes && item.dupe.brand.trim().toLowerCase() === item.original.brand.trim().toLowerCase()) return false;
+    if (excludeSameBrandDupes && _normalizeBrandForComparison(item.dupe.brand) === _normalizeBrandForComparison(item.original.brand)) return false;
     return true;
   });
 }

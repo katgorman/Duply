@@ -1543,6 +1543,7 @@ def _store_catalog_products(merged):
     global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache
 
     _category_counts_cache = None
+    _search_cache.clear()
     by_id = {}
     by_category = {}
     by_category_seen = {}
