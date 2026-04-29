@@ -167,14 +167,17 @@ GENERIC_RETAILER_TLDS = {
 }
 _metadata_products = None
 _metadata_products_by_id = None
+_all_metadata_products = None
 _catalog_products = None
 _catalog_products_by_id = None
 _catalog_products_by_category = None
 _catalog_search_prefix_index = None
 _catalog_cache_loaded_at = 0.0
 _category_counts_cache = None
+_broad_category_counts_cache = None
 _catalog_status = "uninitialized"
 _catalog_error = ""
+_catalog_source = "uninitialized"
 _catalog_load_lock = Lock()
 _catalog_warmup_started = False
 
@@ -277,6 +280,20 @@ PRODUCT_TYPE_ALIASES = {
     "nail care": "nail_polish",
     "nail art": "nail_polish",
     "nail set": "nail_polish",
+    "nail polish remover": "nail_polish",
+    "nail remover": "nail_polish",
+    "base coat": "nail_polish",
+    "top coat": "nail_polish",
+    "topcoat": "nail_polish",
+    "cuticle oil": "nail_polish",
+    "cuticle remover": "nail_polish",
+    "manicure set": "nail_polish",
+    "pedicure set": "nail_polish",
+    "press on nails": "nail_polish",
+    "press-on nails": "nail_polish",
+    "false nails": "nail_polish",
+    "artificial nails": "nail_polish",
+    "nail glue": "nail_polish",
     # Skincare — masks
     "face mask": "face_mask",
     "face_mask": "face_mask",
@@ -480,6 +497,36 @@ _NORMALIZED_CATEGORY_BUCKETS = {
 _CATEGORY_BUCKET_KEYWORDS = {
     bucket: [kw for kw in (normalize_product_type(v).replace("_", " ") for v in values) if kw]
     for bucket, values in CATEGORY_BUCKETS.items()
+}
+
+_NAIL_PRODUCT_PHRASES = {
+    "nail polish",
+    "nail polishs",
+    "nail color",
+    "nail colour",
+    "nail lacquer",
+    "nail varnish",
+    "nail enamel",
+    "nail polish remover",
+    "nail remover",
+    "nail treatment",
+    "nail care",
+    "nail topcoat",
+    "nail top coat",
+    "nail base coat",
+    "nail art",
+    "gel polish",
+    "cuticle oil",
+    "cuticle remover",
+    "cuticle cream",
+    "cuticle care",
+    "manicure set",
+    "pedicure set",
+    "press on nails",
+    "press-on nails",
+    "false nails",
+    "artificial nails",
+    "nail glue",
 }
 
 
@@ -712,15 +759,20 @@ def build_web_cache_id(cache_kind, cache_key):
 
 
 def invalidate_catalog_cache():
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache, _catalog_status, _catalog_error, _catalog_warmup_started
+    global _metadata_products, _metadata_products_by_id, _all_metadata_products, _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache, _broad_category_counts_cache, _catalog_status, _catalog_error, _catalog_source, _catalog_warmup_started
+    _metadata_products = None
+    _metadata_products_by_id = None
+    _all_metadata_products = None
     _catalog_products = None
     _catalog_products_by_id = None
     _catalog_products_by_category = None
     _catalog_search_prefix_index = None
     _catalog_cache_loaded_at = 0.0
     _category_counts_cache = None
+    _broad_category_counts_cache = None
     _catalog_status = "uninitialized"
     _catalog_error = ""
+    _catalog_source = "uninitialized"
     _catalog_warmup_started = False
     _search_cache.clear()
 
@@ -787,6 +839,9 @@ def set_admin_job_state(job_id, payload):
 
 
 def _product_bucket(product):
+    if _looks_like_nail_product(product):
+        return "nails"
+
     raw_fields = [
         product.get("subcategory"),
         product.get("type"),
@@ -807,6 +862,45 @@ def _product_bucket(product):
                 return bucket
 
     return "other"
+
+
+def _looks_like_nail_product(product):
+    raw = product.get("raw", {}) if isinstance(product.get("raw"), dict) else {}
+    text_fields = [
+        product.get("product_name"),
+        product.get("name"),
+        product.get("title"),
+        product.get("subcategory"),
+        product.get("type"),
+        product.get("category"),
+        product.get("productType"),
+        raw.get("product_name"),
+        raw.get("Product_Name"),
+        raw.get("name"),
+        raw.get("title"),
+        raw.get("subcategory"),
+        raw.get("type"),
+        raw.get("category"),
+        raw.get("productType"),
+    ]
+    combined = " ".join(
+        normalize_text(value).replace("_", " ")
+        for value in text_fields
+        if value
+    )
+    if not combined:
+        return False
+
+    if any(phrase in combined for phrase in _NAIL_PRODUCT_PHRASES):
+        return True
+
+    if "press on" in combined and "nail" in combined:
+        return True
+
+    if "manicure" in combined or "pedicure" in combined:
+        return True
+
+    return False
 
 
 def _prepare_catalog_product(product):
@@ -888,6 +982,14 @@ def _candidate_values(record, keys):
     return values
 
 
+def _first_present(record, keys, default=""):
+    for key in keys:
+        value = record.get(key)
+        if value is not None and value != "":
+            return value
+    return default
+
+
 def _score_firestore_match(doc_data, target):
     target_brand = normalize_text(target.get("brand"))
     target_name = normalize_text(target.get("product_name"))
@@ -930,12 +1032,13 @@ def _score_firestore_match(doc_data, target):
 
 def _normalize_firestore_product(doc):
     data = doc.to_dict() or {}
-    category = data.get("Category") or data.get("category") or data.get("main_category") or ""
-    product_type = normalize_product_type(
-        data.get("subcategory") or data.get("productType") or data.get("type") or category
-    )
-
     raw = data.get("raw", {}) if isinstance(data.get("raw"), dict) else {}
+    category = _first_present(data, ["Category", "category", "main_category", "mainCategory"], "") or _first_present(raw, ["Category", "category", "main_category", "mainCategory"], "")
+    product_type = normalize_product_type(
+        _first_present(data, ["subcategory", "productType", "type"], "")
+        or _first_present(raw, ["subcategory", "productType", "type"], "")
+        or category
+    )
     merchant_offers = data.get("merchantOffers") or raw.get("merchantOffers") or []
     offer_image = ""
     for offer in merchant_offers:
@@ -946,21 +1049,35 @@ def _normalize_firestore_product(doc):
 
     return {
         "firestore_id": doc.id,
-        "brand": data.get("Brand") or data.get("brand") or "",
+        "brand": _first_present(data, ["Brand", "brand", "brandName", "Brand_Name"], "") or _first_present(raw, ["Brand", "brand", "brandName", "Brand_Name"], ""),
         "product_name": (
-            data.get("Product_Name")
-            or data.get("product_name")
-            or data.get("name")
-            or data.get("title")
-            or data.get("productName")
-            or ""
+            _first_present(data, ["Product_Name", "product_name", "name", "title", "productName", "Name"], "")
+            or _first_present(raw, ["Product_Name", "product_name", "name", "title", "productName", "Name"], "")
         ),
         "category": category,
         "subcategory": product_type,
         "type": product_type,
-        "price": data.get("Price_USD") or data.get("price") or data.get("salePrice") or data.get("current_price") or 0,
-        "rating": data.get("Rating") or data.get("rating") or data.get("avgRating") or 0,
-        "image": _clean_image(data.get("image") or data.get("imageUrl") or data.get("image_link") or raw.get("image") or raw.get("imageUrl") or offer_image or ""),
+        "price": (
+            _first_present(data, ["Price_USD", "price", "salePrice", "current_price", "currentPrice"], 0)
+            or _first_present(raw, ["Price_USD", "price", "salePrice", "current_price", "currentPrice"], 0)
+            or 0
+        ),
+        "rating": (
+            _first_present(data, ["Rating", "rating", "avgRating", "averageRating"], 0)
+            or _first_present(raw, ["Rating", "rating", "avgRating", "averageRating"], 0)
+            or 0
+        ),
+        "image": _clean_image(
+            _first_present(data, ["image", "imageUrl", "image_link", "imageLink"], "")
+            or _first_present(raw, ["image", "imageUrl", "image_link", "imageLink"], "")
+            or offer_image
+            or ""
+        ),
+        "productUrl": (
+            _first_present(data, ["productUrl", "title-href", "url", "canonicalUrl"], "")
+            or _first_present(raw, ["productUrl", "title-href", "url", "canonicalUrl"], "")
+            or ""
+        ),
         "raw": data,
     }
 
@@ -1203,20 +1320,32 @@ def _load_metadata_products():
     if _metadata_products is not None:
         return _metadata_products
 
+    all_products = _load_all_metadata_products()
+    searchable_products = [product for product in all_products if _is_searchable_catalog_product(product)]
+    by_id = {product["firestore_id"]: product for product in searchable_products}
+
+    _metadata_products = searchable_products
+    _metadata_products_by_id = by_id
+    return _metadata_products
+
+
+def _load_all_metadata_products():
+    global _all_metadata_products
+
+    if _all_metadata_products is not None:
+        return _all_metadata_products
+
     if not METADATA_PATH.exists():
-        _metadata_products = []
-        _metadata_products_by_id = {}
-        return _metadata_products
+        _all_metadata_products = []
+        return _all_metadata_products
 
     try:
         raw_items = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
     except Exception:
-        _metadata_products = []
-        _metadata_products_by_id = {}
-        return _metadata_products
+        _all_metadata_products = []
+        return _all_metadata_products
 
     normalized_items = []
-    by_id = {}
     seen = set()
 
     for item in raw_items:
@@ -1252,15 +1381,11 @@ def _load_metadata_products():
             "productUrl": item.get("productUrl") or item.get("title-href") or "",
             "raw": item,
         }
-        if not _is_searchable_catalog_product(normalized):
-            continue
         prepared = _prepare_catalog_product(normalized)
         normalized_items.append(prepared)
-        by_id[prepared["firestore_id"]] = prepared
 
-    _metadata_products = normalized_items
-    _metadata_products_by_id = by_id
-    return _metadata_products
+    _all_metadata_products = normalized_items
+    return _all_metadata_products
 
 
 def _get_metadata_product_by_id(product_id):
@@ -1383,12 +1508,16 @@ def search_firestore_products(query, limit=20):
 
 
 def _category_matches(category_or_type):
+    raw_target = normalize_text(category_or_type)
     normalized_target = normalize_product_type(category_or_type)
-    if not normalized_target:
+    if not raw_target and not normalized_target:
         return []
 
     warm_catalog_cache()
-    return list((_catalog_products_by_category or {}).get(normalized_target, []))
+    by_category = _catalog_products_by_category or {}
+    if raw_target in CATEGORY_BUCKETS:
+        return list(by_category.get(raw_target, []))
+    return list(by_category.get(normalized_target, []))
 
 
 def _category_sort_key(product, sort_by):
@@ -1429,16 +1558,33 @@ def _rounded_category_estimate(count):
 
 
 def category_counts():
-    global _category_counts_cache
-    if _category_counts_cache is not None:
-        return _category_counts_cache
+    global _broad_category_counts_cache
+    if _broad_category_counts_cache is not None:
+        return _broad_category_counts_cache
 
-    _load_catalog_products()
-    by_cat = _catalog_products_by_category or {}
-    counts = {bucket: len(by_cat.get(bucket, [])) for bucket in [*CATEGORY_BUCKETS.keys(), "other"]}
+    if _catalog_source == "firestore" and _catalog_products_by_category is not None:
+        counts = {
+            bucket: len((_catalog_products_by_category or {}).get(bucket, []))
+            for bucket in [*CATEGORY_BUCKETS.keys(), "other"]
+        }
+        _broad_category_counts_cache = counts
+        return _broad_category_counts_cache
 
-    _category_counts_cache = counts
-    return _category_counts_cache
+    counts = {bucket: 0 for bucket in [*CATEGORY_BUCKETS.keys(), "other"]}
+    all_metadata_products = _load_all_metadata_products()
+    if not all_metadata_products:
+        _load_catalog_products()
+        by_cat = _catalog_products_by_category or {}
+        counts = {bucket: len(by_cat.get(bucket, [])) for bucket in [*CATEGORY_BUCKETS.keys(), "other"]}
+        _broad_category_counts_cache = counts
+        return _broad_category_counts_cache
+
+    for product in all_metadata_products:
+        bucket = product.get("_bucket") or _product_bucket(product)
+        counts[bucket] = counts.get(bucket, 0) + 1
+
+    _broad_category_counts_cache = counts
+    return _broad_category_counts_cache
 
 
 def list_products_by_category(category_or_type, limit=24, page=1, query="", sort_by="popular"):
@@ -1540,9 +1686,10 @@ def _stream_collection_paginated(collection_name, page_size=500, page_timeout=30
 
 
 def _store_catalog_products(merged):
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _category_counts_cache, _broad_category_counts_cache
 
     _category_counts_cache = None
+    _broad_category_counts_cache = None
     _search_cache.clear()
     by_id = {}
     by_category = {}
@@ -1621,7 +1768,7 @@ def _store_catalog_products(merged):
 
 
 def _load_metadata_catalog():
-    global _catalog_status, _catalog_error
+    global _catalog_status, _catalog_error, _catalog_source
 
     merged = []
     seen_identity = set()
@@ -1638,6 +1785,7 @@ def _load_metadata_catalog():
     result = _store_catalog_products(merged)
     _catalog_status = "ready"
     _catalog_error = ""
+    _catalog_source = "metadata"
     return result
 
 
@@ -1652,7 +1800,7 @@ def _catalog_cache_is_fresh():
 
 
 def _load_catalog_products(force_refresh=False):
-    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _catalog_status, _catalog_error, _catalog_warmup_started
+    global _catalog_products, _catalog_products_by_id, _catalog_products_by_category, _catalog_search_prefix_index, _catalog_cache_loaded_at, _catalog_status, _catalog_error, _catalog_source, _catalog_warmup_started
 
     if not force_refresh and _catalog_cache_is_fresh():
         return _catalog_products
@@ -1689,11 +1837,13 @@ def _load_catalog_products(force_refresh=False):
                     merged.append(normalized)
 
             if not merged:
+                _catalog_error = "Firestore catalog produced no usable products; falling back to metadata"
                 return _load_metadata_catalog()
 
             _store_catalog_products(merged)
             _catalog_status = "ready"
             _catalog_error = ""
+            _catalog_source = "firestore"
             return _catalog_products
         except Exception as exc:
             _catalog_error = str(exc)
@@ -1725,6 +1875,8 @@ def get_catalog_status():
         "status": _catalog_status,
         "loaded": bool(_catalog_products is not None),
         "error": _catalog_error,
+        "source": _catalog_source,
+        "count": len(_catalog_products or []),
     }
 
 
@@ -1745,8 +1897,6 @@ def start_catalog_warmup(refresh_from_firestore=False, on_refresh=None):
 
     def _worker():
         try:
-            if _catalog_products is None:
-                _load_metadata_catalog()
             if refresh_from_firestore and db is not None:
                 _load_catalog_products(force_refresh=True)
                 if on_refresh:
@@ -1754,6 +1904,8 @@ def start_catalog_warmup(refresh_from_firestore=False, on_refresh=None):
                         on_refresh()
                     except Exception:
                         pass
+            elif _catalog_products is None:
+                _load_metadata_catalog()
         except Exception:
             pass
         finally:
@@ -1766,10 +1918,16 @@ def start_catalog_warmup(refresh_from_firestore=False, on_refresh=None):
 
 def warm_catalog_cache():
     if _catalog_products is None:
-        try:
-            _load_metadata_catalog()
-        except Exception:
-            _load_catalog_products()
+        if db is not None:
+            try:
+                _load_catalog_products()
+            except Exception:
+                _load_metadata_catalog()
+        else:
+            try:
+                _load_metadata_catalog()
+            except Exception:
+                _load_catalog_products()
     category_counts()
 
 

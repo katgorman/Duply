@@ -2363,6 +2363,8 @@ def admin_debug_categories():
     by_cat = _fp_module._catalog_products_by_category or {}
     computed_counts = category_counts()
     return {
+        "catalog_source": _fp_module.get_catalog_status().get("source"),
+        "catalog_count": _fp_module.get_catalog_status().get("count"),
         "raw_by_cat_nails": len(by_cat.get("nails", [])),
         "raw_by_cat_nail_polish": len(by_cat.get("nail_polish", [])),
         "category_counts_result": computed_counts,

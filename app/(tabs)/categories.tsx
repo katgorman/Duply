@@ -35,11 +35,13 @@ function CategoryTile({
   category,
   wide = false,
   compact = false,
+  countsUnavailable = false,
   onPress,
 }: {
   category: Category;
   wide?: boolean;
   compact?: boolean;
+  countsUnavailable?: boolean;
   onPress: () => void;
 }) {
   const dark = category.id === 'other';
@@ -65,7 +67,11 @@ function CategoryTile({
           <Text style={[styles.categoryName, compact && styles.categoryNameCompact, dark && styles.categoryNameDark]}>{category.name}</Text>
           <View style={styles.categoryFooterRow}>
             <Text style={[styles.categoryMeta, compact && styles.categoryMetaCompact, dark && styles.categoryMetaDark]}>
-              {typeof category.count === 'number' ? 'Products' : 'Loading totals'}
+              {typeof category.count === 'number'
+                ? 'Products'
+                : countsUnavailable
+                  ? 'Totals unavailable'
+                  : 'Loading totals'}
             </Text>
             {typeof category.count === 'number' ? (
               <Text style={[styles.categoryCount, compact && styles.categoryCountCompact, dark && styles.categoryCountDark]}>
@@ -90,9 +96,10 @@ export default function CategoriesScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const compactCategoryLayout = width < 760;
-  const { data, loading: categoriesLoading } = useCategories();
+  const { data, loading: categoriesLoading, error: categoriesError } = useCategories();
 
   const categories = data?.length ? data : FALLBACK_CATEGORIES;
+  const countsUnavailable = Boolean(categoriesError) && !data?.length;
 
   useEffect(() => {
     categories.forEach(category => {
@@ -125,6 +132,12 @@ export default function CategoriesScreen() {
                   <Text style={styles.loadingPillText}>Loading</Text>
                 </View>
               </View>
+            ) : countsUnavailable ? (
+              <View style={styles.categoryLoadingRow}>
+                <View style={styles.loadingPill}>
+                  <Text style={styles.loadingPillText}>Counts unavailable</Text>
+                </View>
+              </View>
             ) : null}
 
             <View style={styles.categoryGrid}>
@@ -134,6 +147,7 @@ export default function CategoriesScreen() {
                   category={category}
                   wide={compactCategoryLayout || (categories.length % 2 === 1 && index === categories.length - 1)}
                   compact={compactCategoryLayout}
+                  countsUnavailable={countsUnavailable}
                   onPress={() => openCategory(category.productType, category.name)}
                 />
               ))}
