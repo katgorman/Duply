@@ -47,10 +47,65 @@ function _normalizeBrandForComparison(brand: string): string {
   return brand.trim().toLowerCase().replace(/\s+(?:by|for|from)\s+.+$/i, '');
 }
 
+function _normalizeProductType(value?: string): string {
+  return (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+const KNOWN_PRODUCT_TYPES = new Set([
+  'foundation', 'concealer', 'blush', 'bronzer', 'powder',
+  'primer', 'highlighter', 'contour', 'setting_spray', 'skin_tint',
+  'lipstick', 'lip_gloss', 'lip_oil', 'lip_liner', 'lip_balm',
+  'eyeshadow', 'eyeliner', 'mascara', 'eyebrow', 'brow_gel', 'brow_pencil',
+  'nail_polish',
+  'cleanser', 'moisturizer', 'serum', 'sunscreen', 'face_mask',
+  'perfume', 'fragrance',
+]);
+
+const KNOWN_ACCESSORY_TYPES = new Set([
+  'brush', 'brushes', 'makeup_brush', 'makeup_brushes',
+  'sponge', 'sponges', 'beauty_blender', 'blender', 'puff',
+  'tool', 'tools', 'makeup_tool', 'makeup_tools',
+  'accessory', 'accessories', 'applicator', 'applicators',
+  'mirror', 'mirrors', 'curler', 'lash_curler', 'tweezer', 'tweezers',
+  'sharpener', 'pouch', 'cosmetic_case', 'makeup_case', 'makeup_bag',
+  'roller', 'face_roller', 'jade_roller', 'gua_sha',
+  'cotton_pad', 'cotton_swab', 'qtip', 'q_tip',
+  'headband', 'hair_band',
+]);
+
+const ACCESSORY_NAME_RE = /\b(?:brush(?:es)?|sponge|beauty\s+blender|powder\s+puff|puff|applicator|lash\s+curler|eyelash\s+curler|tweezer(?:s)?|pencil\s+sharpener|sharpener|makeup\s+mirror|compact\s+mirror|makeup\s+bag|cosmetic\s+case|makeup\s+case|cotton\s+pad|cotton\s+swab|q-?tip|head(?:\s|-)?band|gua\s*sha|jade\s+roller|face\s+roller|makeup\s+tool|beauty\s+tool|makeup\s+brush)\b/i;
+
+function _isAccessory(product: Product): boolean {
+  const normalizedType = _normalizeProductType(product.productType);
+  if (KNOWN_PRODUCT_TYPES.has(normalizedType)) return false;
+  if (KNOWN_ACCESSORY_TYPES.has(normalizedType)) return true;
+
+  const normalizedCategory = _normalizeProductType(product.category);
+  if (KNOWN_ACCESSORY_TYPES.has(normalizedCategory)) return true;
+
+  const haystack = [product.name, product.familyName, product.category]
+    .filter(Boolean)
+    .join(' ');
+  return ACCESSORY_NAME_RE.test(haystack);
+}
+
+function _sameProductType(original: Product, dupe: Product): boolean {
+  const a = _normalizeProductType(original.productType);
+  const b = _normalizeProductType(dupe.productType);
+  if (!a || !b) return true;
+  return a === b;
+}
+
 function filterVisibleDupes(items: Dupe[], showHigherPricedMatches: boolean, excludeSameBrandDupes: boolean) {
   return items.filter(item => {
-    if (!showHigherPricedMatches && item.dupe.price > item.original.price) return false;
+    if (!showHigherPricedMatches && item.dupe.price >= item.original.price) return false;
     if (excludeSameBrandDupes && _normalizeBrandForComparison(item.dupe.brand) === _normalizeBrandForComparison(item.original.brand)) return false;
+    if (_isAccessory(item.original) !== _isAccessory(item.dupe)) return false;
+    if (!_sameProductType(item.original, item.dupe)) return false;
     return true;
   });
 }
@@ -381,8 +436,8 @@ export default function SearchResultsScreen() {
               </Text>
               <Text style={styles.sourceSummaryBody}>
                 {showHigherPricedMatches
-                  ? 'Showing all ranked matches, including premium alternatives.'
-                  : 'Showing dupes priced at or below the source product by default.'}
+                  ? 'Showing all ranked matches, including same and higher priced alternatives.'
+                  : 'Showing dupes priced below the source product by default.'}
               </Text>
             </View>
           </View>

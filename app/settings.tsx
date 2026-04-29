@@ -99,8 +99,8 @@ export default function SettingsScreen() {
             <View style={styles.toggleLeft}>
               <Search width={20} height={20} stroke={colors.textMuted} />
               <View style={styles.textBlock}>
-                <Text style={styles.toggleLabel}>Show matches at higher price points than the original query</Text>
-                <Text style={styles.toggleHelp}>Turn this on to include strong matches even when they cost more.</Text>
+                <Text style={styles.toggleLabel}>Show matches at the same or higher price than the original query</Text>
+                <Text style={styles.toggleHelp}>Off by default — only cheaper dupes are shown. Turn this on to include matches that cost the same or more.</Text>
               </View>
             </View>
             <Switch
