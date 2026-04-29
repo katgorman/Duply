@@ -484,6 +484,18 @@ VARIANT_STOP_WORDS = {
     "variant",
 }
 
+GENERIC_FAMILY_TYPES = {"general", "other", ""}
+NON_VARIANT_SUFFIX_TERMS = {
+    "set",
+    "kit",
+    "bundle",
+    "collection",
+    "refill",
+    "refillable",
+    "gift",
+    "pack",
+}
+
 
 def normalize_product_type(value):
     normalized = normalize_text(value)
@@ -590,6 +602,12 @@ def _normalize_family_token(value):
     return re.sub(r"[^a-z0-9]+", " ", normalize_text(value)).strip()
 
 
+def _normalized_family_brand(value):
+    normalized = _normalize_family_token(value)
+    stripped = re.sub(r"\s+by\s+[a-z0-9 ]{2,40}$", "", normalized).strip()
+    return stripped or normalized
+
+
 def _to_title_case(value):
     return " ".join(
         part[:1].upper() + part[1:]
@@ -603,11 +621,27 @@ def _looks_like_variant_suffix(value):
     if not normalized:
         return False
 
-    if re.match(r"^[a-z]?\d{2,6}(?:\s+[a-z0-9].*)?$", str(value or "").strip(), re.IGNORECASE):
+    if any(term in normalized.split() for term in NON_VARIANT_SUFFIX_TERMS):
+        return False
+
+    raw_value = str(value or "").strip()
+
+    if re.match(r"^[a-z]?\d{1,6}(?:[\s\-]+[a-z0-9].*)?$", raw_value, re.IGNORECASE):
         return True
 
     token_count = len(normalized.split())
-    return token_count <= 4 and len(normalized) <= 28
+    if token_count <= 4 and len(normalized) <= 28:
+        return True
+
+    if token_count <= 6 and len(normalized) <= 40:
+        if raw_value.isupper():
+            return True
+        if re.search(r"\d", raw_value):
+            return True
+        if "-" in raw_value or "/" in raw_value:
+            return True
+
+    return False
 
 
 def _normalize_variant_label(value):
@@ -621,6 +655,13 @@ def _split_title_stem(name):
         stem = separated.group(1).strip()
         suffix = _normalize_variant_label(separated.group(2))
         if stem and _looks_like_variant_suffix(suffix) and len(stem) >= max(6, int(len(trimmed) * 0.45)):
+            return stem, suffix
+
+    parenthetical = re.match(r"^(.*)\(([^()]*)\)\s*$", trimmed)
+    if parenthetical and parenthetical.group(1) and parenthetical.group(2):
+        stem = parenthetical.group(1).strip()
+        suffix = _normalize_variant_label(parenthetical.group(2))
+        if stem and suffix and _looks_like_variant_suffix(suffix) and len(stem) >= max(6, int(len(trimmed) * 0.45)):
             return stem, suffix
 
     patterns = [
@@ -647,8 +688,10 @@ def build_product_family_name(product):
 
 
 def build_product_family_key(product):
-    brand = _normalize_family_token(_record_brand(product))
+    brand = _normalized_family_brand(_record_brand(product))
     product_type = _normalize_family_token(_record_product_type(product))
+    if product_type in GENERIC_FAMILY_TYPES:
+        product_type = _normalize_family_token(_record_category(product) or product.get("_bucket") or product_type)
     family_name = _normalize_family_token(build_product_family_name(product))
     return "|".join([brand, product_type, family_name])
 
